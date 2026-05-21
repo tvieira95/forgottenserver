@@ -2,18 +2,18 @@ function onUpdateDatabase()
 	logMigration("> Updating database to version 38 (player prey cards and charm points)")
 
 	local function columnExists(tableName, columnName)
-		local query = db.storeQuery(
+		local resultId = db.storeQuery(
 			"SELECT COUNT(*) AS `count` FROM `information_schema`.`COLUMNS`"
 			.. " WHERE `TABLE_SCHEMA` = DATABASE()"
 			.. " AND `TABLE_NAME` = " .. db.escapeString(tableName)
 			.. " AND `COLUMN_NAME` = " .. db.escapeString(columnName)
 		)
-		if not query then
+		if not resultId then
 			return false
 		end
 
-		local exists = query:getNumber("count") > 0
-		query:free()
+		local exists = result.getNumber(resultId, "count") > 0
+		result.free(resultId)
 		return exists
 	end
 

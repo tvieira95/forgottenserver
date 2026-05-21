@@ -1,16 +1,16 @@
 function onUpdateDatabase()
 	logMigration("> Updating database to version 39 (prey free list reroll marker)")
 
-	local query = db.storeQuery(
+	local resultId = db.storeQuery(
 		"SELECT COUNT(*) AS `count` FROM `information_schema`.`COLUMNS`"
 		.. " WHERE `TABLE_SCHEMA` = DATABASE()"
 		.. " AND `TABLE_NAME` = 'player_prey'"
 		.. " AND `COLUMN_NAME` = 'list_reroll_used'"
 	)
 	local exists = false
-	if query then
-		exists = query:getNumber("count") > 0
-		query:free()
+	if resultId then
+		exists = result.getNumber(resultId, "count") > 0
+		result.free(resultId)
 	end
 
 	if not exists then
