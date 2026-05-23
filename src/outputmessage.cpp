@@ -17,15 +17,13 @@ using namespace std::chrono_literals;
 
 // Inline constexpr constants avoid ODR issues and are friendly to headers/optimizations
 inline constexpr uint16_t OUTPUTMESSAGE_FREE_LIST_CAPACITY = 2048;
-inline constexpr auto AUTOSEND_DELAY_MIN = 5ms;   // High load (many players with data)
-inline constexpr auto AUTOSEND_DELAY_MAX = 25ms;   // Low load (few players with data)
 inline constexpr auto AUTOSEND_DELAY_DEFAULT = 10ms;
-inline constexpr size_t AUTOSEND_HIGH_LOAD_THRESHOLD = 200; // protocols with pending data
 
 } // namespace
 
 void OutputMessagePool::scheduleSendAll(std::chrono::milliseconds delay) noexcept
 {
+	sendScheduled = true;
 	g_scheduler.addEvent(createSchedulerTask(static_cast<int>(delay.count()), []() {
 		OutputMessagePool::getInstance().sendAll();
 	}));
@@ -34,27 +32,23 @@ void OutputMessagePool::scheduleSendAll(std::chrono::milliseconds delay) noexcep
 void OutputMessagePool::sendAll() noexcept
 {
 	// THREAD-SAFETY: Must be called from dispatcher thread only.
+	sendScheduled = false;
 	if (bufferedProtocols.empty()) [[unlikely]] {
 		return;
 	}
 
-	size_t activeCount = 0;
-	for (auto& protocol : bufferedProtocols) {
+	std::vector<Protocol_ptr> protocols;
+	protocols.swap(bufferedProtocols);
+
+	for (auto& protocol : protocols) {
 		auto& msg = protocol->getCurrentBuffer();
 		if (msg) [[likely]] {
 			protocol->send(std::move(msg));
-			++activeCount;
 		}
 	}
 
 	if (!bufferedProtocols.empty()) [[likely]] {
-		auto delay = AUTOSEND_DELAY_DEFAULT;
-		if (activeCount >= AUTOSEND_HIGH_LOAD_THRESHOLD) {
-			delay = AUTOSEND_DELAY_MIN;
-		} else if (activeCount == 0) {
-			delay = AUTOSEND_DELAY_MAX;
-		}
-		scheduleSendAll(delay);
+		scheduleSendAll(AUTOSEND_DELAY_DEFAULT);
 	}
 }
 
@@ -62,10 +56,14 @@ void OutputMessagePool::addProtocolToAutosend(Protocol_ptr protocol)
 {
 	// THREAD-SAFETY: Must be called from dispatcher thread only
 	// dispatcher thread
-	if (bufferedProtocols.empty()) [[unlikely]] {
+	if (std::find(bufferedProtocols.begin(), bufferedProtocols.end(), protocol) != bufferedProtocols.end()) {
+		return;
+	}
+
+	bufferedProtocols.emplace_back(std::move(protocol));
+	if (!sendScheduled) [[unlikely]] {
 		scheduleSendAll(AUTOSEND_DELAY_DEFAULT);
 	}
-	bufferedProtocols.emplace_back(std::move(protocol));
 }
 
 void OutputMessagePool::removeProtocolFromAutosend(const Protocol_ptr& protocol)

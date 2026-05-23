@@ -378,7 +378,6 @@ void ProtocolGame::login(uint32_t characterId, uint32_t accountId, OperatingSyst
 			connect(foundPlayer->getID(), operatingSystem);
 		}
 	}
-	OutputMessagePool::getInstance().addProtocolToAutosend(shared_from_this());
 }
 
 void ProtocolGame::spectate(const std::string& name, const std::string& password)
@@ -433,7 +432,6 @@ void ProtocolGame::spectate(const std::string& name, const std::string& password
 	acceptPackets = true;
 	sendWelcomeMessage();
 
-	OutputMessagePool::getInstance().addProtocolToAutosend(shared_from_this());
 }
 
 void ProtocolGame::connect(uint32_t playerId, OperatingSystem_t operatingSystem)

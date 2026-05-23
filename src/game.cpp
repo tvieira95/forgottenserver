@@ -4540,8 +4540,7 @@ void Game::checkCreatures(size_t index)
 	size_t i = 0;
 
 	while (i < checkCreatureList.size()) {
-		auto creatureRef = checkCreatureList[i];
-		Creature* creature = creatureRef.get();
+		Creature* creature = checkCreatureList[i].get();
 
 		if (!creature) {
 			checkCreatureList[i] = checkCreatureList.back();

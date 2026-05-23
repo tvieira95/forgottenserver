@@ -1049,36 +1049,38 @@ bool ConditionRegeneration::executeCondition(Creature* creature, int32_t interva
 	if (internalHealthTicks >= healthTicks) {
 		internalHealthTicks = 0;
 
-		uint32_t healAmount = healthGain;
-		if (healthGainPercent != 0) {
-			auto percent = static_cast<float>(healthGainPercent - 100) / 100.0f;
-			healAmount += static_cast<int32_t>(creature->getMaxHealth() * percent);
-		}
+		if (creature->getHealth() < creature->getMaxHealth()) {
+			uint32_t healAmount = healthGain;
+			if (healthGainPercent != 0) {
+				auto percent = static_cast<float>(healthGainPercent - 100) / 100.0f;
+				healAmount += static_cast<int32_t>(creature->getMaxHealth() * percent);
+			}
 
-		int32_t realHealthGain = creature->getHealth();
-		creature->changeHealth(healAmount);
-		realHealthGain = creature->getHealth() - realHealthGain;
+			int32_t realHealthGain = creature->getHealth();
+			creature->changeHealth(healAmount);
+			realHealthGain = creature->getHealth() - realHealthGain;
 
-		if (isBuff && realHealthGain > 0) {
-			if (auto player = creature->getPlayer()) {
-				std::string healString =
-				    std::to_string(realHealthGain) + (realHealthGain != 1 ? " hitpoints." : " hitpoint.");
+			if (isBuff && realHealthGain > 0) {
+				if (auto player = creature->getPlayer()) {
+					std::string healString =
+					    std::to_string(realHealthGain) + (realHealthGain != 1 ? " hitpoints." : " hitpoint.");
 
-				TextMessage message(MESSAGE_STATUS_DEFAULT, "You were healed for " + healString);
-				player->sendTextMessage(message);
+					TextMessage message(MESSAGE_STATUS_DEFAULT, "You were healed for " + healString);
+					player->sendTextMessage(message);
 
-				SpectatorVec spectators;
-				g_game.map.getSpectators(spectators, player->getPosition(), false, true);
-				spectators = InstanceUtils::filterByInstance(spectators, player->getInstanceID());
-				g_game.addAnimatedText(spectators, fmt::format("{:+d}", realHealthGain), player->getPosition(),
-                                    		   static_cast<TextColor_t>(getInteger(ConfigManager::HEALTH_GAIN_COLOUR)));
+					SpectatorVec spectators;
+					g_game.map.getSpectators(spectators, player->getPosition(), false, true);
+					spectators = InstanceUtils::filterByInstance(spectators, player->getInstanceID());
+					g_game.addAnimatedText(spectators, fmt::format("{:+d}", realHealthGain), player->getPosition(),
+					                       static_cast<TextColor_t>(getInteger(ConfigManager::HEALTH_GAIN_COLOUR)));
 
-				spectators.erase(player);
-				if (!spectators.empty()) {
-					message.type = MESSAGE_STATUS_DEFAULT;
-					message.text = player->getName() + " was healed for " + healString;
-					for (const auto& spectator : spectators) {
-						static_cast<Player*>(spectator.get())->sendTextMessage(message);
+					spectators.erase(player);
+					if (!spectators.empty()) {
+						message.type = MESSAGE_STATUS_DEFAULT;
+						message.text = player->getName() + " was healed for " + healString;
+						for (const auto& spectator : spectators) {
+							static_cast<Player*>(spectator.get())->sendTextMessage(message);
+						}
 					}
 				}
 			}
@@ -1089,34 +1091,36 @@ bool ConditionRegeneration::executeCondition(Creature* creature, int32_t interva
 		internalManaTicks = 0;
 
 		if (auto player = creature->getPlayer()) {
-			uint32_t manaAmount = manaGain;
-			if (manaGainPercent != 0) {
-				auto percent = static_cast<float>(manaGainPercent - 100) / 100.0f;
-				manaAmount += static_cast<int32_t>(player->getMaxMana() * percent);
-			}
+			if (player->getMana() < player->getMaxMana()) {
+				uint32_t manaAmount = manaGain;
+				if (manaGainPercent != 0) {
+					auto percent = static_cast<float>(manaGainPercent - 100) / 100.0f;
+					manaAmount += static_cast<int32_t>(player->getMaxMana() * percent);
+				}
 
-			int32_t realManaGain = player->getMana();
-			player->changeMana(manaAmount);
-			realManaGain = player->getMana() - realManaGain;
+				int32_t realManaGain = player->getMana();
+				player->changeMana(manaAmount);
+				realManaGain = player->getMana() - realManaGain;
 
-			if (isBuff && realManaGain > 0) {
-				std::string manaGainString = std::to_string(realManaGain);
+				if (isBuff && realManaGain > 0) {
+					std::string manaGainString = std::to_string(realManaGain);
 
-				TextMessage message(MESSAGE_STATUS_DEFAULT, "You gained " + manaGainString + " mana.");
-				player->sendTextMessage(message);
+					TextMessage message(MESSAGE_STATUS_DEFAULT, "You gained " + manaGainString + " mana.");
+					player->sendTextMessage(message);
 
-				SpectatorVec spectators;
-				g_game.map.getSpectators(spectators, player->getPosition(), false, true);
-				spectators = InstanceUtils::filterByInstance(spectators, player->getInstanceID());
-				g_game.addAnimatedText(spectators, fmt::format("{:+d}", realManaGain), player->getPosition(),
-                                       static_cast<TextColor_t>(getInteger(ConfigManager::MANA_GAIN_COLOUR)));
+					SpectatorVec spectators;
+					g_game.map.getSpectators(spectators, player->getPosition(), false, true);
+					spectators = InstanceUtils::filterByInstance(spectators, player->getInstanceID());
+					g_game.addAnimatedText(spectators, fmt::format("{:+d}", realManaGain), player->getPosition(),
+					                       static_cast<TextColor_t>(getInteger(ConfigManager::MANA_GAIN_COLOUR)));
 
-				spectators.erase(player);
-				if (!spectators.empty()) {
-					message.type = MESSAGE_STATUS_DEFAULT;
-					message.text = player->getName() + " gained " + manaGainString + " mana.";
-					for (const auto& spectator : spectators) {
-						static_cast<Player*>(spectator.get())->sendTextMessage(message);
+					spectators.erase(player);
+					if (!spectators.empty()) {
+						message.type = MESSAGE_STATUS_DEFAULT;
+						message.text = player->getName() + " gained " + manaGainString + " mana.";
+						for (const auto& spectator : spectators) {
+							static_cast<Player*>(spectator.get())->sendTextMessage(message);
+						}
 					}
 				}
 			}

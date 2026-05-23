@@ -131,6 +131,7 @@ private:
 	void sendAll() noexcept;
 
 	std::vector<Protocol_ptr> bufferedProtocols;
+	bool sendScheduled = false;
 };
 
 #endif // FS_OUTPUTMESSAGE_H

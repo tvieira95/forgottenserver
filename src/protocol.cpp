@@ -69,9 +69,11 @@ OutputMessage_ptr Protocol::getOutputBuffer(int32_t size)
 	// dispatcher thread
 	if (!outputBuffer) {
 		outputBuffer = OutputMessagePool::getOutputMessage();
+		OutputMessagePool::getInstance().addProtocolToAutosend(shared_from_this());
 	} else if ((outputBuffer->getLength() + size) > NetworkMessage::MAX_PROTOCOL_BODY_LENGTH) {
 		send(outputBuffer);
 		outputBuffer = OutputMessagePool::getOutputMessage();
+		OutputMessagePool::getInstance().addProtocolToAutosend(shared_from_this());
 	}
 	return outputBuffer;
 }
