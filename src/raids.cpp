@@ -130,6 +130,10 @@ bool Raids::loadFromXml()
 
 		if ((attr = raidNode.attribute("spawnFile"))) {
 			spawnFile = attr.as_string();
+			if (!std::filesystem::path(spawnFile).has_extension()) {
+				spawnFile += ".xml";
+			}
+
 			if (!isValidRaidSpawnFile(spawnFile)) {
 				LOG_ERROR(fmt::format("[Error - Raids::loadFromXml] Invalid spawnFile tag for raid {}: {}", name, spawnFile));
 				continue;
@@ -420,7 +424,7 @@ bool Raid::saveSpawnFile() const
 			monsterNode.append_attribute("name") = record->monsterName.c_str();
 			monsterNode.append_attribute("x") = record->position.getX() - group.center.getX();
 			monsterNode.append_attribute("y") = record->position.getY() - group.center.getY();
-			monsterNode.append_attribute("z") = static_cast<unsigned int>(record->position.z);
+			monsterNode.append_attribute("z") = record->position.getZ() - group.center.getZ();
 			monsterNode.append_attribute("spawntime") = spawnTime;
 			monsterNode.append_attribute("direction") = direction;
 		}
