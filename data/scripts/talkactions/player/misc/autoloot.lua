@@ -50,7 +50,11 @@ function talkaction.onSay(player, words, param)
 			local current = player:isAutoLootGoldEnabled()
 			player:setAutoLootGold(not current)
 			if not current then
-				player:sendTextMessage(MESSAGE_STATUS_CONSOLE_BLUE, "AutoLoot Gold: enabled. All coins go directly to your bank account.")
+				if configKeys.AUTOLOOT_AUTO_BANK and configManager.getBoolean(configKeys.AUTOLOOT_AUTO_BANK) then
+					player:sendTextMessage(MESSAGE_STATUS_CONSOLE_BLUE, "AutoLoot Gold: enabled. All coins go directly to your bank account.")
+				else
+					player:sendTextMessage(MESSAGE_STATUS_CONSOLE_BLUE, "AutoLoot Gold: enabled.")
+				end
 			else
 				player:sendTextMessage(MESSAGE_STATUS_CONSOLE_BLUE, "AutoLoot Gold: disabled.")
 			end

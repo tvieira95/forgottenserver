@@ -5862,7 +5862,10 @@ void Player::lootCorpse(Container* container)
 		}
 	}
 
-	auto goldPouchDestination = findGoldPouch();
+	const bool autobankEnabled = ConfigManager::getBoolean(ConfigManager::AUTOLOOT_AUTO_BANK);
+	const bool autolootGoldPouchEnabled = ConfigManager::getBoolean(ConfigManager::AUTOLOOT_GOLD_POUCH);
+
+	auto goldPouchDestination = autolootGoldPouchEnabled ? findGoldPouch() : nullptr;
 	auto storeInboxDestination = getStoreInbox();
 	if (goldPouchDestination && !storeInboxDestination) {
 		sendTextMessage(MESSAGE_EVENT_ORANGE, "Your store inbox is unavailable.");
@@ -5884,54 +5887,55 @@ void Player::lootCorpse(Container* container)
 		}
 	}
 
-	bool needsGoldPouch = false;
-	for (const auto& pair : toMove) {
-		Item* item = pair.first;
-		const uint16_t itemId = item->getID();
-		if (!moneyIds.contains(itemId) || item->getWorth() == 0) {
-			needsGoldPouch = true;
-			break;
-		}
-	}
-
-	if (!goldPouchDestination && needsGoldPouch) {
-		sendTextMessage(MESSAGE_EVENT_ORANGE, "You need a Gold Pouch to use AutoLoot.");
-	}
-
 	std::vector<std::pair<Item*, uint64_t>> moneyItemsToDeposit;
 	std::unordered_set<Item*> queuedMoneyItems;
+	bool missingGoldPouchMessageSent = false;
 
-	for (const auto& pair : toMove) {
-		Item* item = pair.first;
-		uint32_t value = 0;
-
-		if (autolootConfig.goldEnabled && moneyIds.contains(item->getID())) {
-			value = item->getWorth();
+	auto canUseAutoBank = [&]() {
+		if (autolootGoldPouchEnabled && !goldPouchDestination) {
+			if (!missingGoldPouchMessageSent) {
+				sendTextMessage(MESSAGE_EVENT_ORANGE, "You need a Gold Pouch to use AutoLoot.");
+				missingGoldPouchMessageSent = true;
+			}
+			return false;
 		}
+		return true;
+	};
 
-		if (value > 0) {
-			moneyItemsToDeposit.emplace_back(item, value);
-			queuedMoneyItems.insert(item);
-			continue;
-		}
-
-		if (!goldPouchDestination) {
-			continue;
-		}
-
+	auto moveAutolootItem = [&](Item* item) {
 		ReturnValue ret;
-		Container* primaryDestination = goldPouchDestination ? goldPouchDestination : storeInboxDestination;
-		Container* fallbackDestination = storeInboxDestination;
-		bool usedGoldPouch = (goldPouchDestination != nullptr);
+		Cylinder* primaryDestination = nullptr;
+		Cylinder* fallbackDestination = nullptr;
+		bool usedGoldPouch = false;
+
+		if (autolootGoldPouchEnabled) {
+			if (!goldPouchDestination) {
+				if (!missingGoldPouchMessageSent) {
+					sendTextMessage(MESSAGE_EVENT_ORANGE, "You need a Gold Pouch to use AutoLoot.");
+					missingGoldPouchMessageSent = true;
+				}
+				return false;
+			}
+
+			primaryDestination = goldPouchDestination;
+			fallbackDestination = storeInboxDestination;
+			usedGoldPouch = true;
+		} else {
+			primaryDestination = this;
+		}
 
 		ret = g_game.internalMoveItem(container, primaryDestination, INDEX_WHEREEVER, item,
 		                                          item->getItemCount(), nullptr);
 		if (ret == RETURNVALUE_NOERROR) {
-			continue;
+			return true;
 		}
 		if (ret == RETURNVALUE_NOTENOUGHCAPACITY) {
 			sendTextMessage(MESSAGE_STATUS_SMALL, "You do not have enough capacity to autoloot this item.");
-			continue;
+			return false;
+		}
+		if (!usedGoldPouch) {
+			sendTextMessage(MESSAGE_STATUS_SMALL, "Your containers are full. Item left in corpse.");
+			return false;
 		}
 
 		if (usedGoldPouch && fallbackDestination != primaryDestination) {
@@ -5939,11 +5943,11 @@ void Player::lootCorpse(Container* container)
 			                                          item->getItemCount(), nullptr);
 			if (ret == RETURNVALUE_NOERROR) {
 				sendTextMessage(MESSAGE_STATUS_SMALL, "Your gold pouch is full. Item sent to store inbox.");
-				continue;
+				return true;
 			}
 			if (ret == RETURNVALUE_NOTENOUGHCAPACITY) {
 				sendTextMessage(MESSAGE_STATUS_SMALL, "You do not have enough capacity to autoloot this item.");
-				continue;
+				return false;
 			}
 		}
 
@@ -5953,31 +5957,62 @@ void Player::lootCorpse(Container* container)
 			ret = g_game.internalMoveItem(container, backpack, INDEX_WHEREEVER, item, item->getItemCount(), nullptr);
 			if (ret == RETURNVALUE_NOERROR) {
 				sendTextMessage(MESSAGE_STATUS_SMALL, "Your store inbox is full. Item sent to backpack.");
-				continue;
+				return true;
 			}
 			if (ret == RETURNVALUE_NOTENOUGHCAPACITY) {
 				sendTextMessage(MESSAGE_STATUS_SMALL, "You do not have enough capacity to autoloot this item.");
-				continue;
+				return false;
 			}
 		}
 		
 		sendTextMessage(MESSAGE_STATUS_SMALL, "Your containers are full. Item left in corpse.");
+		return false;
+	};
+
+	for (const auto& pair : toMove) {
+		Item* item = pair.first;
+		const uint16_t itemId = item->getID();
+		const uint64_t value = static_cast<uint64_t>(item->getWorth());
+		const bool isMoneyItem = autolootConfig.goldEnabled && moneyIds.contains(itemId) && value > 0;
+
+		if (isMoneyItem) {
+			queuedMoneyItems.insert(item);
+			if (autobankEnabled) {
+				if (canUseAutoBank()) {
+					moneyItemsToDeposit.emplace_back(item, value);
+				}
+				continue;
+			}
+		}
+
+		moveAutolootItem(item);
 	}
 
 	if (autolootConfig.goldEnabled) {
+		std::vector<Item*> moneyItemsToMove;
 		for (ContainerIterator it = container->iterator(); it.hasNext(); it.advance()) {
 			Item* goldItem = *it;
 			const uint16_t itemId = goldItem->getID();
 			uint64_t worth = static_cast<uint64_t>(goldItem->getWorth());
 			if (moneyIds.contains(itemId) && worth > 0 && !queuedMoneyItems.contains(goldItem)) {
-				moneyItemsToDeposit.emplace_back(goldItem, worth);
 				queuedMoneyItems.insert(goldItem);
+				if (autobankEnabled) {
+					if (canUseAutoBank()) {
+						moneyItemsToDeposit.emplace_back(goldItem, worth);
+					}
+				} else {
+					moneyItemsToMove.push_back(goldItem);
+				}
 			}
+		}
+
+		for (Item* goldItem : moneyItemsToMove) {
+			moveAutolootItem(goldItem);
 		}
 	}
 
 	uint64_t totalDepositValue = 0;
-	if (autolootConfig.goldEnabled) {
+	if (autolootConfig.goldEnabled && autobankEnabled) {
 		for (const auto& [item, value] : moneyItemsToDeposit) {
 			if (g_game.internalRemoveItem(item, item->getItemCount()) == RETURNVALUE_NOERROR) {
 				totalDepositValue += value;

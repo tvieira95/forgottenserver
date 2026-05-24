@@ -13,6 +13,8 @@ dllCheckKickTime = 5 -- time in seconds (optional usage)
 -- Server-only custom configuration is in data/server_config.lua.
 
 Autoloot_enabled = true
+autobank = true
+autolootGoldPouch = true
 AutoLoot_BlockIDs = ""
 AutoLoot_MoneyIDs = "3031;3035;3043;32724"
 AutoLoot_MaxItemFree = 5
