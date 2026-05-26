@@ -5927,7 +5927,7 @@ void Player::lootCorpse(Container* container)
 			return false;
 		}
 
-		if (usedGoldPouch && fallbackDestination != primaryDestination) {
+		if (usedGoldPouch && fallbackDestination && fallbackDestination != primaryDestination) {
 			ret = g_game.internalMoveItem(container, fallbackDestination, INDEX_WHEREEVER, item,
 			                                          item->getItemCount(), nullptr);
 			if (ret == RETURNVALUE_NOERROR) {
@@ -5992,7 +5992,8 @@ void Player::lootCorpse(Container* container)
 		for (ContainerIterator it = container->iterator(); it.hasNext(); it.advance()) {
 			Item* goldItem = *it;
 			const uint16_t itemId = goldItem->getID();
-			uint64_t worth = static_cast<uint64_t>(goldItem->getWorth());
+			const int64_t rawWorth = goldItem->getWorth();
+			const uint64_t worth = rawWorth > 0 ? static_cast<uint64_t>(rawWorth) : 0;
 			if (moneyIds.contains(itemId) && worth > 0 && !queuedMoneyItems.contains(goldItem)) {
 				queuedMoneyItems.insert(goldItem);
 				if (autobankEnabled) {
