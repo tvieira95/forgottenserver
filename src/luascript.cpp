@@ -3231,6 +3231,7 @@ int LuaScriptInterface::luaGetSubTypeName(lua_State* L)
 	}
 	return 1;
 }
+
 bool LuaScriptInterface::getArea(lua_State* L, std::vector<uint32_t>& vec, uint32_t& rows)
 {
 	lua_pushnil(L);
