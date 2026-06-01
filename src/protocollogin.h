@@ -67,8 +67,10 @@ public:
 private:
 	void disconnectClient(std::string_view message);
 
-	void getCharacterList(std::string_view accountName, std::string_view password);
+	void getCharacterList(std::string_view accountName, std::string_view password, bool isAstraClient);
 	void getCastList(const std::string& password);
+
+	bool isAstraClient_ = false;
 };
 
 #endif

@@ -90,7 +90,7 @@ void ProtocolLogin::disconnectClient(std::string_view message)
 	disconnect();
 }
 
-void ProtocolLogin::getCharacterList(std::string_view accountName, std::string_view password)
+void ProtocolLogin::getCharacterList(std::string_view accountName, std::string_view password, bool isAstraClient)
 {
 	auto connection = getConnection();
 	uint32_t clientIP = connection ? connection->getIP() : 0;
@@ -165,24 +165,38 @@ void ProtocolLogin::getCharacterList(std::string_view accountName, std::string_v
 	auto serverName = getString(ConfigManager::SERVER_NAME);
 	auto gamePort = getInteger(ConfigManager::GAME_PORT);
 
-	// AstraClient extends the 8.60 list with outfit, level and vocation metadata.
-	output->addByte(0x65);
 	uint8_t size = std::min<size_t>(std::numeric_limits<uint8_t>::max(), characters.size());
-	output->addByte(size);
-	for (uint8_t i = 0; i < size; ++i) {
-		const auto& character = characters[i];
-		output->addString(character.name);
-		output->addString(serverName);
-		output->add<uint32_t>(IP);
-		output->add<uint16_t>(gamePort);
-		output->add<uint16_t>(character.lookType);
-		output->addByte(character.lookHead);
-		output->addByte(character.lookBody);
-		output->addByte(character.lookLegs);
-		output->addByte(character.lookFeet);
-		output->addByte(character.lookAddons);
-		output->add<uint32_t>(character.level);
-		output->addString(character.vocation);
+
+	if (isAstraClient) {
+		// AstraClient extends the 8.60 list with outfit, level and vocation metadata.
+		output->addByte(0x65);
+		output->addByte(size);
+		for (uint8_t i = 0; i < size; ++i) {
+			const auto& character = characters[i];
+			output->addString(character.name);
+			output->addString(serverName);
+			output->add<uint32_t>(IP);
+			output->add<uint16_t>(gamePort);
+			output->add<uint16_t>(character.lookType);
+			output->addByte(character.lookHead);
+			output->addByte(character.lookBody);
+			output->addByte(character.lookLegs);
+			output->addByte(character.lookFeet);
+			output->addByte(character.lookAddons);
+			output->add<uint32_t>(character.level);
+			output->addString(character.vocation);
+		}
+	} else {
+		// Standard 8.60 character list for OTCv8 Classic, Fonticak, CIP, etc.
+		output->addByte(0x64);
+		output->addByte(size);
+		for (uint8_t i = 0; i < size; ++i) {
+			const auto& character = characters[i];
+			output->addString(character.name);
+			output->addString(serverName);
+			output->add<uint32_t>(IP);
+			output->add<uint16_t>(gamePort);
+		}
 	}
 
 	// Add premium days
@@ -315,24 +329,27 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 	// Read and validate password from the message
 	auto password = msg.getString();
 
-	if (getBoolean(ConfigManager::ASTRA_CLIENT_ONLY)) {
-		bool isAstraClient = false;
-		if (msg.getBufferPosition() + 2 <= msg.getLength()) {
-			uint16_t markerLength = msg.get<uint16_t>();
-			if (markerLength > 0 && markerLength <= 64 && msg.getBufferPosition() + markerLength <= msg.getLength()) {
-				const auto marker = msg.getString(markerLength);
-				if (marker == AstraClient::LOGIN_MARKER && msg.getBufferPosition() + sizeof(uint32_t) <= msg.getLength()) {
-					isAstraClient =
-					    msg.get<uint32_t>() == AstraClient::generateSignature(operatingSystem, version, key);
-				}
+	// Always detect AstraClient, regardless of astraClientOnly setting.
+	// This allows sending the correct packet format (0x65 vs 0x64) to each client.
+	if (msg.getBufferPosition() + 2 <= msg.getLength()) {
+		uint16_t markerLength = msg.get<uint16_t>();
+		if (markerLength > 0 && markerLength <= 64 && msg.getBufferPosition() + markerLength <= msg.getLength()) {
+			const auto marker = msg.getString(markerLength);
+			if (marker == AstraClient::LOGIN_MARKER && msg.getBufferPosition() + sizeof(uint32_t) <= msg.getLength()) {
+				isAstraClient_ =
+				    msg.get<uint32_t>() == AstraClient::generateSignature(operatingSystem, version, key);
 			}
 		}
+	}
 
-		if (!isAstraClient) {
-			LOG_INFO("[AstraClient] Client rejected: AstraClient required");
-			disconnectClient(AstraClient::REQUIRED_MESSAGE);
-			return;
-		}
+	// When astraClientOnly is true, reject any client that is not AstraClient.
+	if (getBoolean(ConfigManager::ASTRA_CLIENT_ONLY) && !isAstraClient_) {
+		LOG_INFO("[AstraClient] Client rejected: AstraClient required");
+		disconnectClient(AstraClient::REQUIRED_MESSAGE);
+		return;
+	}
+
+	if (isAstraClient_) {
 		LOG_INFO("[AstraClient] Client accepted");
 	}
 
@@ -349,7 +366,7 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 		if (accountName.empty()) {
 			thisPtr->getCastList(password);
 		} else {
-			thisPtr->getCharacterList(accountName, password);
+			thisPtr->getCharacterList(accountName, password, thisPtr->isAstraClient_);
 		}
 	});
 }
