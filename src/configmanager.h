@@ -93,6 +93,7 @@ enum Boolean
 	ALLOW_DUAL_WIELDING,
 	RAID_SPAWN_FILE_ENABLED,
 	POWERLAW,
+	ASTRA_CLIENT_ONLY,
 
 
 	LAST_BOOLEAN /* this must be the last one */

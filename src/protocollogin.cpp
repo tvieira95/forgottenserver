@@ -5,6 +5,7 @@
 
 #include "protocollogin.h"
 
+#include "astraclient.h"
 #include "ban.h"
 #include "configmanager.h"
 #include "game.h"
@@ -201,7 +202,7 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 		return;
 	}
 
-	msg.skipBytes(2); // client OS
+	uint16_t operatingSystem = msg.get<uint16_t>();
 
 	uint16_t version = msg.get<uint16_t>();
 	msg.skipBytes(12);
@@ -266,6 +267,27 @@ void ProtocolLogin::onRecvFirstMessage(NetworkMessage& msg)
 
 	// Read and validate password from the message
 	auto password = msg.getString();
+
+	if (getBoolean(ConfigManager::ASTRA_CLIENT_ONLY)) {
+		bool isAstraClient = false;
+		if (msg.getBufferPosition() + 2 <= msg.getLength()) {
+			uint16_t markerLength = msg.get<uint16_t>();
+			if (markerLength > 0 && markerLength <= 64 && msg.getBufferPosition() + markerLength <= msg.getLength()) {
+				const auto marker = msg.getString(markerLength);
+				if (marker == AstraClient::LOGIN_MARKER && msg.getBufferPosition() + sizeof(uint32_t) <= msg.getLength()) {
+					isAstraClient =
+					    msg.get<uint32_t>() == AstraClient::generateSignature(operatingSystem, version, key);
+				}
+			}
+		}
+
+		if (!isAstraClient) {
+			LOG_INFO("[AstraClient] Client rejected: AstraClient required");
+			disconnectClient(AstraClient::REQUIRED_MESSAGE);
+			return;
+		}
+		LOG_INFO("[AstraClient] Client accepted");
+	}
 
 	// Brute force check before dispatching login task
 	uint32_t clientIP = connection ? connection->getIP() : 0;

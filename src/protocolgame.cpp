@@ -4,6 +4,7 @@
 #include "otpch.h"
 
 #include "actions.h"
+#include "astraclient.h"
 #include "ban.h"
 #include "configmanager.h"
 #include "creatureevent.h"
@@ -564,10 +565,29 @@ void ProtocolGame::onRecvFirstMessage(NetworkMessage& msg)
 			isOTCv8 = true;
 			msg.get<uint16_t>();
 
-			if (msg.getBufferPosition() + 2 <= msg.getLength()) {
+			while (msg.getBufferPosition() + 2 <= msg.getLength()) {
 				uint16_t markerLength = msg.get<uint16_t>();
-				if (markerLength > 0 && markerLength <= 64 && msg.getBufferPosition() + markerLength <= msg.getLength()) {
-					useItemTierByte = msg.getString(markerLength) == "OTCv8TierByte";
+				if (markerLength == 0) {
+					break;
+				}
+
+				if (markerLength > 64 || msg.getBufferPosition() + markerLength > msg.getLength()) {
+					break;
+				}
+
+				const auto marker = msg.getString(markerLength);
+				if (marker == "OTCv8TierByte") {
+					useItemTierByte = true;
+				} else if (marker == AstraClient::LOGIN_MARKER) {
+					if (msg.getBufferPosition() + sizeof(uint32_t) > msg.getLength()) {
+						break;
+					}
+					isAstraClient =
+					    msg.get<uint32_t>() ==
+					    AstraClient::generateSignature(static_cast<uint16_t>(operatingSystem), version, key,
+					                                   challengeTimestamp, challengeRandom);
+				} else {
+					break;
 				}
 			}
 		}
@@ -579,6 +599,15 @@ void ProtocolGame::onRecvFirstMessage(NetworkMessage& msg)
 	}
 
 	isOTC = isOTCv8 || isMehah || isOtclientOperatingSystem(operatingSystem);
+
+	if (getBoolean(ConfigManager::ASTRA_CLIENT_ONLY)) {
+		if (!isAstraClient) {
+			LOG_INFO("[AstraClient] Client rejected: AstraClient required");
+			disconnectClient(AstraClient::REQUIRED_MESSAGE);
+			return;
+		}
+		LOG_INFO("[AstraClient] Client accepted");
+	}
 
 	if (isOTC) {
 		NetworkMessage opcodeMessage;
