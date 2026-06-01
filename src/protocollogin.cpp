@@ -8,15 +8,20 @@
 #include "astraclient.h"
 #include "ban.h"
 #include "configmanager.h"
+#include "database.h"
 #include "game.h"
 #include "iologindata.h"
 #include "outputmessage.h"
 #include "tasks.h"
 #include "tools.h"
+#include "vocation.h"
 
 #include <fmt/format.h>
+#include <limits>
+#include <vector>
 
 extern Game g_game;
+extern Vocations g_vocations;
 
 // --- Brute Force Protection ---
 
@@ -108,34 +113,76 @@ void ProtocolLogin::getCharacterList(std::string_view accountName, std::string_v
 		output->addString(fmt::format("{:d}\n{:s}", g_game.getMotdNum(), motd));
 	}
 
-	// Add char list
-	output->addByte(0x64);
+	struct CharacterListEntry {
+		std::string name;
+		uint32_t level = 0;
+		uint16_t lookType = 128;
+		uint8_t lookHead = 78;
+		uint8_t lookBody = 69;
+		uint8_t lookLegs = 58;
+		uint8_t lookFeet = 76;
+		uint8_t lookAddons = 0;
+		std::string vocation = "None";
+	};
 
-	uint8_t size = std::min<size_t>(std::numeric_limits<uint8_t>::max(), account.characters.size());
+	std::vector<CharacterListEntry> characters;
 	bool hasAccountManager = ConfigManager::getBoolean(ConfigManager::ACCOUNT_MANAGER);
 	bool hasNamelock = ConfigManager::getBoolean(ConfigManager::NAMELOCK_MANAGER) && IOBan::accountHasNamelockedPlayer(account.id);
-	
+
 	if ((hasAccountManager && account.id != 1) || hasNamelock) {
-		size++;
+		CharacterListEntry accountManager;
+		accountManager.name = "Account Manager";
+		accountManager.vocation = "Account Manager";
+		characters.push_back(std::move(accountManager));
+	}
+
+	Database& db = Database::getInstance();
+	DBResult_ptr result = db.storeQuery(fmt::format(
+	    "SELECT `name`, `level`, `vocation`, `looktype`, `lookhead`, `lookbody`, `looklegs`, `lookfeet`, `lookaddons` FROM `players` WHERE `account_id` = {:d} AND `deletion` = 0 ORDER BY `name` ASC",
+	    account.id));
+	if (result) {
+		do {
+			CharacterListEntry character;
+			character.name = std::string{result->getString("name")};
+			character.level = result->getNumber<uint32_t>("level");
+			character.lookType = AstraClient::sanitize860OutfitLookType(result->getNumber<uint16_t>("looktype"));
+			character.lookHead = result->getNumber<uint8_t>("lookhead");
+			character.lookBody = result->getNumber<uint8_t>("lookbody");
+			character.lookLegs = result->getNumber<uint8_t>("looklegs");
+			character.lookFeet = result->getNumber<uint8_t>("lookfeet");
+			character.lookAddons = result->getNumber<uint8_t>("lookaddons");
+
+			const uint16_t vocationId = result->getNumber<uint16_t>("vocation");
+			if (const auto* vocation = g_vocations.getVocation(vocationId)) {
+				character.vocation = std::string{vocation->getVocName()};
+			}
+
+			characters.push_back(std::move(character));
+		} while (result->next() && characters.size() < std::numeric_limits<uint8_t>::max());
 	}
 
 	auto IP = getIP(getString(ConfigManager::IP));
 	auto serverName = getString(ConfigManager::SERVER_NAME);
 	auto gamePort = getInteger(ConfigManager::GAME_PORT);
 
+	// AstraClient extends the 8.60 list with outfit, level and vocation metadata.
+	output->addByte(0x65);
+	uint8_t size = std::min<size_t>(std::numeric_limits<uint8_t>::max(), characters.size());
 	output->addByte(size);
-	if ((hasAccountManager && account.id != 1) || hasNamelock) {
-		output->addString("Account Manager");
+	for (uint8_t i = 0; i < size; ++i) {
+		const auto& character = characters[i];
+		output->addString(character.name);
 		output->addString(serverName);
 		output->add<uint32_t>(IP);
 		output->add<uint16_t>(gamePort);
-	}
-	uint8_t charCount = size - (((hasAccountManager && account.id != 1) || hasNamelock) ? 1 : 0);
-	for (uint8_t i = 0; i < charCount; i++) {
-		output->addString(account.characters[i]);
-		output->addString(serverName);
-		output->add<uint32_t>(IP);
-		output->add<uint16_t>(gamePort);
+		output->add<uint16_t>(character.lookType);
+		output->addByte(character.lookHead);
+		output->addByte(character.lookBody);
+		output->addByte(character.lookLegs);
+		output->addByte(character.lookFeet);
+		output->addByte(character.lookAddons);
+		output->add<uint32_t>(character.level);
+		output->addString(character.vocation);
 	}
 
 	// Add premium days
