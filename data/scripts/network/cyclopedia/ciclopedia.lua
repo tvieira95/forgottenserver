@@ -1,16 +1,16 @@
 -- Custom Cyclopedia PacketHandler
--- Client sends 0x48, 0x49, 0x4A, 0x4C and 0x4D. Server responds through 0x48 with a response byte.
+-- Client sends 0x39, 0x3A, 0x3B, 0x3E and 0x3F. Server responds through 0x39 with a response byte.
 
 if not configManager.getBoolean(configKeys.BESTIARY_SYSTEM_ENABLED) or not CustomBestiary then
 	return
 end
 
-local OPCODE_CYCLOPEDIA_INFO = 0x48
-local OPCODE_CYCLOPEDIA_CATEGORY = 0x49
-local OPCODE_CYCLOPEDIA_MONSTER = 0x4A
-local OPCODE_CYCLOPEDIA_CHARM = 0x4C
-local OPCODE_CYCLOPEDIA_TRACKER = 0x4D
-local OPCODE_CYCLOPEDIA_SEND = 0x48
+local OPCODE_CYCLOPEDIA_INFO = 0x39
+local OPCODE_CYCLOPEDIA_CATEGORY = 0x3A
+local OPCODE_CYCLOPEDIA_MONSTER = 0x3B
+local OPCODE_CYCLOPEDIA_CHARM = 0x3E
+local OPCODE_CYCLOPEDIA_TRACKER = 0x3F
+local OPCODE_CYCLOPEDIA_SEND = 0x39
 
 local RESP_MESSAGE = 0x00
 local RESP_BESTIARY_DATA = 0x01
@@ -537,8 +537,8 @@ local function sendTracker(player)
 			out:addU16(raceId)
 			writeCreatureInfo(out, entry)
 			out:addU32(clamp(killCount, 0, 0xFFFFFFFF))
-			out:addU16(entry.firstUnlock)
-			out:addU16(entry.secondUnlock)
+			--out:addU16(entry.firstUnlock)
+			--out:addU16(entry.secondUnlock)
 			out:addU16(entry.toKill)
 			out:addByte(CustomBestiary.getProgress(entry, killCount))
 		else
@@ -546,8 +546,8 @@ local function sendTracker(player)
 			writeCreatureInfo(out, nil)
 			out:addU32(0)
 			out:addU16(1)
-			out:addU16(1)
-			out:addU16(1)
+			--out:addU16(1)
+			--out:addU16(1)
 			out:addByte(0)
 		end
 	end
@@ -619,6 +619,9 @@ local function handleCharmAction(player, charmId, action, raceId)
 			playerGuid .. ", " .. charmId .. ", 1, 0) ON DUPLICATE KEY UPDATE `unlocked` = 1")
 		setPlayerCharmPoints(playerGuid, charmPoints - charm.price)
 		invalidatePlayer(playerGuid)
+		if CustomBestiary.refreshPlayerCharms then
+			CustomBestiary.refreshPlayerCharms(player)
+		end
 		sendMessage(player, "Charm unlocked.")
 		sendBestiaryData(player)
 		return
@@ -639,6 +642,9 @@ local function handleCharmAction(player, charmId, action, raceId)
 		db.query("UPDATE `player_bestiary_charms` SET `raceid` = 0 WHERE `player_id` = " .. playerGuid .. " AND `raceid` = " .. raceId)
 		db.query("UPDATE `player_bestiary_charms` SET `raceid` = " .. raceId .. " WHERE `player_id` = " .. playerGuid .. " AND `charm_id` = " .. charmId)
 		invalidatePlayer(playerGuid)
+		if CustomBestiary.refreshPlayerCharms then
+			CustomBestiary.refreshPlayerCharms(player)
+		end
 		sendMessage(player, "Charm assigned.")
 		sendBestiaryData(player)
 		return
@@ -654,6 +660,9 @@ local function handleCharmAction(player, charmId, action, raceId)
 
 		db.query("UPDATE `player_bestiary_charms` SET `raceid` = 0 WHERE `player_id` = " .. playerGuid .. " AND `charm_id` = " .. charmId)
 		invalidatePlayer(playerGuid)
+		if CustomBestiary.refreshPlayerCharms then
+			CustomBestiary.refreshPlayerCharms(player)
+		end
 		sendMessage(player, "Charm removed.")
 		sendBestiaryData(player)
 		return

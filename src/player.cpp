@@ -3145,9 +3145,10 @@ void Player::death(Creature* lastHitCreature)
 			sumMana += vocation->getReqMana(i);
 		}
 
-		totalReduceSkillLoss = storedTotalReduceSkillLoss;
+		totalReduceSkillLoss = storedTotalReduceSkillLoss + temporaryDeathLossReduction;
 
 		double deathLossPercent = getLostPercent();
+		clearTemporaryDeathLossReduction();
 		removeManaSpent(static_cast<uint64_t>((sumMana + manaSpent) * deathLossPercent), false);
 
 		// Skill loss
@@ -3235,6 +3236,7 @@ void Player::death(Creature* lastHitCreature)
 		onIdleStatus();
 		sendStats();
 	}
+	clearTemporaryDeathLossReduction();
 }
 
 bool Player::dropCorpse(Creature* lastHitCreature, Creature* mostDamageCreature, bool lastHitUnjustified,

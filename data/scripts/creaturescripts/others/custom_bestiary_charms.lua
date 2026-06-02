@@ -1,0 +1,394 @@
+if not CustomBestiary then
+	return
+end
+
+local CHARM = {
+	WOUND = 0,
+	ENFLAME = 1,
+	POISON = 2,
+	FREEZE = 3,
+	ZAP = 4,
+	CURSE = 5,
+	CRIPPLE = 6,
+	PARRY = 7,
+	DODGE = 8,
+	ADRENALINE = 9,
+	NUMB = 10,
+	CLEANSE = 11,
+	BLESS = 12,
+	SCAVENGE = 13,
+	GUT = 14,
+	LOW_BLOW = 15,
+	DIVINE_WRATH = 16,
+	VAMPIRIC = 17,
+	VOID_CALL = 18,
+	SAVAGE = 19,
+	FATAL_HOLD = 20,
+	VOID_INVERSION = 21,
+	CARNAGE = 22,
+	OVERPOWER = 23,
+	OVERFLUX = 24
+}
+
+local damageCharms = {
+	[CHARM.WOUND] = COMBAT_PHYSICALDAMAGE,
+	[CHARM.ENFLAME] = COMBAT_FIREDAMAGE,
+	[CHARM.POISON] = COMBAT_EARTHDAMAGE,
+	[CHARM.FREEZE] = COMBAT_ICEDAMAGE,
+	[CHARM.ZAP] = COMBAT_ENERGYDAMAGE,
+	[CHARM.CURSE] = COMBAT_DEATHDAMAGE,
+	[CHARM.DIVINE_WRATH] = COMBAT_HOLYDAMAGE
+}
+
+local negativeConditions = {
+	CONDITION_POISON,
+	CONDITION_FIRE,
+	CONDITION_ENERGY,
+	CONDITION_BLEEDING,
+	CONDITION_PARALYZE,
+	CONDITION_DROWN,
+	CONDITION_FREEZING,
+	CONDITION_DAZZLED,
+	CONDITION_CURSED
+}
+
+local playerCharmCache = {}
+local playerSpecials = {}
+local adrenalineBoosts = {}
+local charmDamageGuard = false
+
+local function getPlayerFromCreature(creature)
+	if not creature then
+		return nil
+	end
+	if creature:isPlayer() then
+		return creature
+	end
+	local master = creature:getMaster()
+	if master and master:isPlayer() then
+		return master
+	end
+	return nil
+end
+
+local function getRaceId(creature)
+	if not creature or not creature:isMonster() then
+		return 0
+	end
+	local monsterType = creature:getType()
+	return monsterType and monsterType:raceId() or 0
+end
+
+local function getPlayerCharms(player)
+	local guid = player:getGuid()
+	if playerCharmCache[guid] then
+		return playerCharmCache[guid]
+	end
+
+	local charms = { byRace = {}, special = {} }
+	local resultId = db.storeQuery("SELECT `charm_id`, `raceid` FROM `player_bestiary_charms` WHERE `player_id` = " ..
+		guid .. " AND `unlocked` = 1 AND `raceid` > 0")
+	if resultId ~= false then
+		repeat
+			local charmId = result.getDataInt(resultId, "charm_id")
+			local raceId = result.getDataInt(resultId, "raceid")
+			charms.byRace[raceId] = charmId
+			if charmId == CHARM.LOW_BLOW or charmId == CHARM.SAVAGE or charmId == CHARM.VAMPIRIC or charmId == CHARM.VOID_CALL then
+				charms.special[#charms.special + 1] = charmId
+			end
+		until not result.next(resultId)
+		result.free(resultId)
+	end
+
+	playerCharmCache[guid] = charms
+	return charms
+end
+
+local function getCharmForRace(player, raceId)
+	if not player or raceId <= 0 then
+		return nil
+	end
+	return getPlayerCharms(player).byRace[raceId]
+end
+
+local function removeSpecials(player)
+	local guid = player:getGuid()
+	local applied = playerSpecials[guid]
+	if not applied then
+		return
+	end
+	for skill, value in pairs(applied) do
+		if value ~= 0 then
+			player:addSpecialSkill(skill, -value)
+		end
+	end
+	playerSpecials[guid] = nil
+end
+
+local function applySpecials(player)
+	removeSpecials(player)
+	local values = {}
+	for _, charmId in ipairs(getPlayerCharms(player).special) do
+		if charmId == CHARM.LOW_BLOW then
+			values[SPECIALSKILL_CRITICALHITCHANCE] = (values[SPECIALSKILL_CRITICALHITCHANCE] or 0) + 400
+		elseif charmId == CHARM.SAVAGE then
+			values[SPECIALSKILL_CRITICALHITAMOUNT] = (values[SPECIALSKILL_CRITICALHITAMOUNT] or 0) + 2000
+		elseif charmId == CHARM.VAMPIRIC then
+			values[SPECIALSKILL_LIFELEECHAMOUNT] = (values[SPECIALSKILL_LIFELEECHAMOUNT] or 0) + 160
+		elseif charmId == CHARM.VOID_CALL then
+			values[SPECIALSKILL_MANALEECHAMOUNT] = (values[SPECIALSKILL_MANALEECHAMOUNT] or 0) + 80
+		end
+	end
+	for skill, value in pairs(values) do
+		player:addSpecialSkill(skill, value)
+	end
+	playerSpecials[player:getGuid()] = values
+end
+
+function CustomBestiary.refreshPlayerCharms(player)
+	if not player then
+		return
+	end
+	playerCharmCache[player:getGuid()] = nil
+	applySpecials(player)
+end
+
+function CustomBestiary.getToolCharmBonuses(player, corpseId)
+	local raceId = CustomBestiary.corpseRaceById[tonumber(corpseId) or 0] or 0
+	local charmId = getCharmForRace(player, raceId)
+	return {
+		scavenge = charmId == CHARM.SCAVENGE,
+		gut = charmId == CHARM.GUT
+	}
+end
+
+local function roll(chancePercent)
+	return math.random(100) <= chancePercent
+end
+
+local function isDamage(value, combatType)
+	return value ~= 0 and combatType ~= COMBAT_HEALING and combatType ~= COMBAT_NONE
+end
+
+local function doCharmDamage(caster, target, combatType, amount, effect)
+	if not caster or not target or amount <= 0 or charmDamageGuard then
+		return
+	end
+	charmDamageGuard = true
+	doTargetCombat(caster, target, combatType, -amount, -amount, effect or CONST_ME_NONE, ORIGIN_NONE)
+	charmDamageGuard = false
+end
+
+local function addParalyze(target, ticks)
+	if not target then
+		return
+	end
+	local condition = Condition(CONDITION_PARALYZE)
+	condition:setParameter(CONDITION_PARAM_TICKS, ticks)
+	condition:setFormula(-0.45, 0, -0.8, 0)
+	target:addCondition(condition)
+	target:getPosition():sendMagicEffect(CONST_ME_STUN)
+end
+
+local function addAdrenaline(player)
+	local guid = player:getGuid()
+	local boost = adrenalineBoosts[guid]
+	if boost then
+		boost.token = boost.token + 1
+		local token = boost.token
+		addEvent(function(playerId, delayedToken)
+			local delayedPlayer = Player(playerId)
+			local delayedBoost = delayedPlayer and adrenalineBoosts[delayedPlayer:getGuid()]
+			if delayedPlayer and delayedBoost and delayedBoost.token == delayedToken then
+				delayedPlayer:changeSpeed(-delayedBoost.delta)
+				adrenalineBoosts[delayedPlayer:getGuid()] = nil
+			end
+		end, 10000, player:getId(), token)
+		player:getPosition():sendMagicEffect(CONST_ME_MAGIC_GREEN)
+		return
+	end
+
+	local delta = math.max(1, math.floor(player:getBaseSpeed() * 1.5))
+	adrenalineBoosts[guid] = { delta = delta, token = 1 }
+	player:changeSpeed(delta)
+	player:getPosition():sendMagicEffect(CONST_ME_MAGIC_GREEN)
+
+	addEvent(function(playerId, token)
+		local delayedPlayer = Player(playerId)
+		local delayedBoost = delayedPlayer and adrenalineBoosts[delayedPlayer:getGuid()]
+		if delayedPlayer and delayedBoost and delayedBoost.token == token then
+			delayedPlayer:changeSpeed(-delayedBoost.delta)
+			adrenalineBoosts[delayedPlayer:getGuid()] = nil
+		end
+	end, 10000, player:getId(), 1)
+end
+
+local function cleanse(player)
+	local removable = {}
+	for _, conditionType in ipairs(negativeConditions) do
+		if player:getCondition(conditionType) then
+			removable[#removable + 1] = conditionType
+		end
+	end
+	if #removable == 0 then
+		return
+	end
+	local conditionType = removable[math.random(#removable)]
+	player:removeCondition(conditionType)
+	player:addConditionSuppressions(conditionType)
+	addEvent(function(playerId, suppressedType)
+		local delayedPlayer = Player(playerId)
+		if delayedPlayer then
+			delayedPlayer:removeConditionSuppressions(suppressedType)
+		end
+	end, 11000, player:getId(), conditionType)
+	player:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
+end
+
+local charmHealth = CreatureEvent("CustomBestiaryCharmHealth")
+function charmHealth.onHealthChange(creature, attacker, primaryDamage, primaryType, secondaryDamage, secondaryType, origin)
+	if charmDamageGuard or not CustomBestiary then
+		return primaryDamage, primaryType, secondaryDamage, secondaryType
+	end
+
+	if creature and creature:isMonster() then
+		local player = getPlayerFromCreature(attacker)
+		local raceId = getRaceId(creature)
+		local charmId = getCharmForRace(player, raceId)
+		if charmId and isDamage(primaryDamage, primaryType) then
+			local combatType = damageCharms[charmId]
+			if combatType and roll(5) then
+				local entry = CustomBestiary.getMonster(raceId)
+				local baseHealth = entry and entry.health or creature:getMaxHealth()
+				doCharmDamage(player, creature, combatType, math.max(1, math.floor(baseHealth * 0.05)), CONST_ME_DRAWBLOOD)
+			elseif charmId == CHARM.CRIPPLE and roll(6) then
+				addParalyze(creature, 10000)
+			elseif charmId == CHARM.FATAL_HOLD and roll(30) and creature.blockFleeing then
+				creature:blockFleeing(30000)
+				creature:getPosition():sendMagicEffect(CONST_ME_WHITE_TIGERCLASH)
+			elseif charmId == CHARM.OVERPOWER and roll(5) then
+				doCharmDamage(player, creature, COMBAT_PHYSICALDAMAGE, math.max(1, math.floor(player:getMaxHealth() * 0.05)), CONST_ME_DRAWBLOOD)
+			elseif charmId == CHARM.OVERFLUX and roll(5) then
+				doCharmDamage(player, creature, COMBAT_ENERGYDAMAGE, math.max(1, math.floor(player:getMaxMana() * 0.025)), CONST_ME_ENERGYHIT)
+			end
+		end
+	elseif creature and creature:isPlayer() then
+		local raceId = getRaceId(attacker)
+		local charmId = getCharmForRace(creature, raceId)
+		if charmId and isDamage(primaryDamage, primaryType) then
+			if charmId == CHARM.DODGE and roll(5) then
+				creature:getPosition():sendMagicEffect(CONST_ME_WHITE_EXPLOSIONHIT)
+				return 0, primaryType, 0, secondaryType
+			elseif charmId == CHARM.PARRY and roll(5) and attacker then
+				local reflected = math.abs(primaryDamage) + math.abs(secondaryDamage)
+				doCharmDamage(creature, attacker, primaryType ~= COMBAT_NONE and primaryType or COMBAT_PHYSICALDAMAGE, reflected, CONST_ME_DRAWBLOOD)
+			elseif charmId == CHARM.ADRENALINE and roll(6) then
+				addAdrenaline(creature)
+			elseif charmId == CHARM.NUMB and roll(6) then
+				addParalyze(attacker, 10000)
+			elseif charmId == CHARM.CLEANSE and roll(6) then
+				cleanse(creature)
+			end
+		end
+	end
+
+	return primaryDamage, primaryType, secondaryDamage, secondaryType
+end
+charmHealth:register()
+
+local charmMana = CreatureEvent("CustomBestiaryCharmMana")
+function charmMana.onManaChange(creature, attacker, primaryDamage, primaryType, secondaryDamage, secondaryType, origin)
+	if creature and creature:isPlayer() and primaryType == COMBAT_MANADRAIN then
+		local charmId = getCharmForRace(creature, getRaceId(attacker))
+		if charmId == CHARM.VOID_INVERSION and primaryDamage < 0 and roll(20) then
+			creature:getPosition():sendMagicEffect(CONST_ME_MAGIC_BLUE)
+			return math.abs(primaryDamage), COMBAT_MANADRAIN, math.abs(secondaryDamage), secondaryType
+		end
+	end
+	return primaryDamage, primaryType, secondaryDamage, secondaryType
+end
+charmMana:register()
+
+local charmDeath = CreatureEvent("CustomBestiaryCharmDeath")
+function charmDeath.onDeath(creature, corpse, killer, mostDamageKiller, lastHitUnjustified, mostDamageUnjustified)
+	local player = getPlayerFromCreature(killer) or getPlayerFromCreature(mostDamageKiller)
+	if not player or not creature or not creature:isMonster() then
+		return true
+	end
+	if getCharmForRace(player, getRaceId(creature)) == CHARM.CARNAGE and roll(10) then
+		local damage = math.max(1, math.floor(creature:getMaxHealth() * 0.15))
+		local spectators = Game.getSpectators(creature:getPosition(), false, false, 2, 2, 2, 2)
+		creature:getPosition():sendMagicEffect(CONST_ME_EXPLOSIONAREA)
+		for _, spectator in ipairs(spectators) do
+			if spectator:isMonster() and spectator ~= creature then
+				spectator:getPosition():sendMagicEffect(CONST_ME_EXPLOSIONAREA)
+				doCharmDamage(player, spectator, COMBAT_PHYSICALDAMAGE, damage, CONST_ME_NONE)
+			end
+		end
+	end
+	return true
+end
+charmDeath:register()
+
+local charmPrepareDeath = CreatureEvent("CustomBestiaryCharmPrepareDeath")
+function charmPrepareDeath.onPrepareDeath(player, killer)
+	if player and player:isPlayer() and getCharmForRace(player, getRaceId(killer)) == CHARM.BLESS and player.setTemporaryDeathLossReduction then
+		player:setTemporaryDeathLossReduction(6)
+	end
+	return true
+end
+charmPrepareDeath:register()
+
+local charmLogin = CreatureEvent("CustomBestiaryCharmLogin")
+function charmLogin.onLogin(player)
+	player:registerEvent("CustomBestiaryCharmHealth")
+	player:registerEvent("CustomBestiaryCharmMana")
+	player:registerEvent("CustomBestiaryCharmPrepareDeath")
+	player:registerEvent("CustomBestiaryCharmLogout")
+	CustomBestiary.refreshPlayerCharms(player)
+	return true
+end
+charmLogin:register()
+
+local charmLogout = CreatureEvent("CustomBestiaryCharmLogout")
+function charmLogout.onLogout(player)
+	removeSpecials(player)
+	local boost = adrenalineBoosts[player:getGuid()]
+	if boost then
+		player:changeSpeed(-boost.delta)
+		adrenalineBoosts[player:getGuid()] = nil
+	end
+	playerCharmCache[player:getGuid()] = nil
+	return true
+end
+charmLogout:register()
+
+local charmSpawn = MonsterEvent and MonsterEvent("CustomBestiaryCharmSpawn") or Event()
+function charmSpawn.onSpawn(monster)
+	if monster then
+		monster:registerEvent("CustomBestiaryCharmHealth")
+		monster:registerEvent("CustomBestiaryCharmDeath")
+	end
+	return true
+end
+charmSpawn:register()
+
+local charmTarget = Event()
+function charmTarget.onTargetCombat(creature, target)
+	if creature and creature:isPlayer() then
+		creature:registerEvent("CustomBestiaryCharmHealth")
+		creature:registerEvent("CustomBestiaryCharmMana")
+		creature:registerEvent("CustomBestiaryCharmPrepareDeath")
+	end
+	if target and target:isPlayer() then
+		target:registerEvent("CustomBestiaryCharmHealth")
+		target:registerEvent("CustomBestiaryCharmMana")
+		target:registerEvent("CustomBestiaryCharmPrepareDeath")
+	end
+	if target and target:isMonster() then
+		target:registerEvent("CustomBestiaryCharmHealth")
+		target:registerEvent("CustomBestiaryCharmDeath")
+	end
+	return RETURNVALUE_NOERROR
+end
+charmTarget:register()

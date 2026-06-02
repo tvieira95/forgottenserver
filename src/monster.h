@@ -139,8 +139,10 @@ public:
 	bool isTarget(const Creature* creature) const;
 	bool isFleeing() const
 	{
-		return !isSummon() && getHealth() <= mType->info.runAwayHealth && challengeFocusDuration <= 0;
+		return !isSummon() && getHealth() <= mType->info.runAwayHealth && challengeFocusDuration <= 0 &&
+		       OTSYS_TIME() >= fleeBlockUntil;
 	}
+	void blockFleeing(uint32_t durationMs) { fleeBlockUntil = std::max<int64_t>(fleeBlockUntil, OTSYS_TIME() + durationMs); }
 
 	bool getDistanceStep(const Position& targetPos, Direction& direction, bool flee = false);
 	bool isTargetNearby() const { return stepDuration >= 1; }
@@ -193,6 +195,7 @@ private:
 	int32_t targetChangeCooldown = 0;
 	int32_t challengeFocusDuration = 0;
 	int32_t stepDuration = 0;
+	int64_t fleeBlockUntil = 0;
 
 	Position masterPos;
 

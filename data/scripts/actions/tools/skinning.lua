@@ -82,6 +82,35 @@ local config = {
 
 local skinning = Action()
 
+local function getCharmToolBonuses(player, target)
+	if CustomBestiary and CustomBestiary.getToolCharmBonuses and target then
+		return CustomBestiary.getToolCharmBonuses(player, target.itemid)
+	end
+	return { scavenge = false, gut = false }
+end
+
+local function getEffectiveChance(chance, bonuses)
+	chance = tonumber(chance) or 0
+	if bonuses.scavenge then
+		chance = math.floor(chance * 1.6)
+	end
+	return math.min(chance, 100000)
+end
+
+local function getProductAmount(amount, bonuses)
+	amount = amount or 1
+	if not bonuses.gut then
+		return amount
+	end
+
+	local extra = amount * 0.06
+	local extraAmount = math.floor(extra)
+	if math.random() < (extra - extraAmount) then
+		extraAmount = extraAmount + 1
+	end
+	return amount + extraAmount
+end
+
 function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey)
 	local skin = config[item.itemid][target.itemid]
 	if not skin then
@@ -89,12 +118,13 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 		return true
 	end
 	local randomChance = math.random(1, 100000)
+	local charmBonuses = getCharmToolBonuses(player, target)
 	local effect = CONST_ME_MAGIC_GREEN
 	local transform = true
 	if type(skin[1]) == "table" then
 		local added = false
 		for _, skinChild in ipairs(skin) do
-			if randomChance <= skinChild.chance then
+			if randomChance <= getEffectiveChance(skinChild.chance, charmBonuses) then
 				if target.itemid == 10426 then
 					local marble = player:addItem(skinChild.newItem, skinChild.amount or 1)
 					if marble then
@@ -124,7 +154,7 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 			transform = false
 			target:remove()
 		end
-	elseif randomChance <= skin.chance then
+	elseif randomChance <= getEffectiveChance(skin.chance, charmBonuses) then
 		if table.contains({7441, 7442, 7444, 7445}, target.itemid) then
 			if skin.newItem == 7446 then
 				player:addAchievement("Ice Sculptor")
@@ -138,7 +168,7 @@ function skinning.onUse(player, item, fromPosition, target, toPosition, isHotkey
 			else
 				player:addAchievementProgress("Skin-Deep", 500)
 			end
-			player:addItem(skin.newItem, skin.amount or 1)
+			player:addItem(skin.newItem, getProductAmount(skin.amount or 1, charmBonuses))
 		end
 	else
 		if table.contains({7441, 7442, 7444, 7445}, target.itemid) then

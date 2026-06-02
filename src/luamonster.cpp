@@ -515,6 +515,19 @@ int luaMonsterGetLevel(lua_State* L)
 	return 1;
 }
 
+int luaMonsterBlockFleeing(lua_State* L)
+{
+	// monster:blockFleeing(milliseconds)
+	Monster* monster = getUserdata<Monster>(L, 1);
+	if (monster) {
+		monster->blockFleeing(getInteger<uint32_t>(L, 2));
+		pushBoolean(L, true);
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
 } // namespace
 
 void LuaScriptInterface::registerMonster()
@@ -565,4 +578,5 @@ void LuaScriptInterface::registerMonster()
 	registerMethod("Monster", "getInfluencedLevel", luaMonsterGetInfluencedLevel);
 	registerMethod("Monster", "setInfluencedLevel", luaMonsterSetInfluencedLevel);
 	registerMethod("Monster", "getLevel", luaMonsterGetLevel);
+	registerMethod("Monster", "blockFleeing", luaMonsterBlockFleeing);
 }

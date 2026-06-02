@@ -453,6 +453,45 @@ int luaPlayerGetDropBonus(lua_State* L)
 	return 1;
 }
 
+int luaPlayerSetTemporaryDeathLossReduction(lua_State* L)
+{
+	// player:setTemporaryDeathLossReduction(percent)
+	Player* player = getUserdata<Player>(L, 1);
+	if (player) {
+		player->setTemporaryDeathLossReduction(getInteger<int32_t>(L, 2));
+		pushBoolean(L, true);
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerAddConditionSuppressions(lua_State* L)
+{
+	// player:addConditionSuppressions(conditions)
+	Player* player = getUserdata<Player>(L, 1);
+	if (player) {
+		player->addConditionSuppressions(getInteger<uint32_t>(L, 2));
+		pushBoolean(L, true);
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerRemoveConditionSuppressions(lua_State* L)
+{
+	// player:removeConditionSuppressions(conditions)
+	Player* player = getUserdata<Player>(L, 1);
+	if (player) {
+		player->removeConditionSuppressions(getInteger<uint32_t>(L, 2));
+		pushBoolean(L, true);
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
 int luaPlayerGetExperience(lua_State* L)
 {
 	// player:getExperience()
@@ -4008,6 +4047,9 @@ void LuaScriptInterface::registerPlayer()
 	registerMethod("Player", "setSkullTime", luaPlayerSetSkullTime);
 	registerMethod("Player", "getDeathPenalty", luaPlayerGetDeathPenalty);
 	registerMethod("Player", "getDropBonus", luaPlayerGetDropBonus);
+	registerMethod("Player", "setTemporaryDeathLossReduction", luaPlayerSetTemporaryDeathLossReduction);
+	registerMethod("Player", "addConditionSuppressions", luaPlayerAddConditionSuppressions);
+	registerMethod("Player", "removeConditionSuppressions", luaPlayerRemoveConditionSuppressions);
 
 	registerMethod("Player", "getExperience", luaPlayerGetExperience);
 	registerMethod("Player", "addExperience", luaPlayerAddExperience);

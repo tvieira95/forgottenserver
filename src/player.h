@@ -533,6 +533,8 @@ public:
 	void setVarSkill(skills_t skill, int32_t modifier) { varSkills[skill] += modifier; }
 
 	void setVarSpecialSkill(SpecialSkills_t skill, int32_t modifier) { varSpecialSkills[skill] += modifier; }
+	void setTemporaryDeathLossReduction(int32_t value) { temporaryDeathLossReduction = std::max<int32_t>(0, value); }
+	void clearTemporaryDeathLossReduction() { temporaryDeathLossReduction = 0; }
 
 	void setSpecialMagicLevelSkill(CombatType_t type, int16_t modifier)
 	{
@@ -1543,6 +1545,7 @@ private:
 	int32_t offlineTrainingTime = 0;
 	int32_t idleTime = 0;
 	int32_t helmetCooldownReduction = 0;
+	int32_t temporaryDeathLossReduction = 0;
 
 	uint16_t lastStatsTrainingTime = 0;
 	uint16_t staminaMinutes = 2520;

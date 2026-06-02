@@ -3277,8 +3277,8 @@ void ProtocolGame::AddPlayerSkills(NetworkMessage& msg)
 
 void ProtocolGame::AddOutfit(NetworkMessage& msg, const Outfit_t& outfit)
 {
-	const bool isAstra860 = isAstraClient && getVersion() == 860;
-	const uint16_t lookType = isAstra860 ? AstraClient::sanitize860OutfitLookType(outfit.lookType) : outfit.lookType;
+	const bool sanitize860Outfits = getVersion() == 860 && (isAstraClient || isOTC);
+	const uint16_t lookType = sanitize860Outfits ? AstraClient::sanitize860OutfitLookType(outfit.lookType) : outfit.lookType;
 	msg.add<uint16_t>(lookType);
 
 	if (lookType != 0) {
@@ -3292,7 +3292,7 @@ void ProtocolGame::AddOutfit(NetworkMessage& msg, const Outfit_t& outfit)
 	}
 
 	if (isOTC || getVersion() != 861) {
-		msg.add<uint16_t>(isAstra860 ? AstraClient::sanitize860MountLookType(outfit.lookMount) : outfit.lookMount);
+		msg.add<uint16_t>(sanitize860Outfits ? AstraClient::sanitize860MountLookType(outfit.lookMount) : outfit.lookMount);
 	}
 }
 
