@@ -66,7 +66,7 @@ int luaWeaponAction(lua_State* L)
 	Weapon* weapon = getUserdata<Weapon>(L, 1);
 	if (weapon) {
 		std::string typeName = getString(L, 2);
-		std::string tmpStr = boost::algorithm::to_lower_copy<std::string>(typeName);
+		std::string tmpStr = asLowerCaseString(typeName);
 		if (tmpStr == "removecount") {
 			weapon->action = WEAPONACTION_REMOVECOUNT;
 		} else if (tmpStr == "removecharge") {
@@ -76,6 +76,7 @@ int luaWeaponAction(lua_State* L)
 		} else {
 			LOG_ERROR(fmt::format("Error: [Weapon::action] No valid action {}", typeName));
 			pushBoolean(L, false);
+			return 1;
 		}
 		pushBoolean(L, true);
 	} else {
@@ -282,7 +283,7 @@ int luaWeaponElement(lua_State* L)
 	if (weapon) {
 		if (!getInteger<CombatType_t>(L, 2)) {
 			std::string element = getString(L, 2);
-			std::string tmpStrValue = boost::algorithm::to_lower_copy<std::string>(element);
+			std::string tmpStrValue = asLowerCaseString(element);
 			if (tmpStrValue == "earth") {
 				weapon->params.combatType = COMBAT_EARTHDAMAGE;
 			} else if (tmpStrValue == "ice") {
@@ -297,6 +298,8 @@ int luaWeaponElement(lua_State* L)
 				weapon->params.combatType = COMBAT_HOLYDAMAGE;
 			} else {
 				LOG_WARN(fmt::format("[Warning - weapon:element] Type \"{}\" does not exist.", element));
+				pushBoolean(L, false);
+				return 1;
 			}
 		} else {
 			weapon->params.combatType = getInteger<CombatType_t>(L, 2);
@@ -335,7 +338,7 @@ int luaWeaponVocation(lua_State* L)
 
 		if (showInDescription) {
 			if (weapon->getVocationString().empty()) {
-				tmp = boost::algorithm::to_lower_copy<std::string>(getString(L, 2));
+				tmp = asLowerCaseString(getString(L, 2));
 				tmp += "s";
 				weapon->setVocationString(tmp);
 			} else {
@@ -345,7 +348,7 @@ int luaWeaponVocation(lua_State* L)
 				} else {
 					tmp += ", ";
 				}
-				tmp += boost::algorithm::to_lower_copy<std::string>(getString(L, 2));
+				tmp += asLowerCaseString(getString(L, 2));
 				tmp += "s";
 				weapon->setVocationString(tmp);
 			}
@@ -605,29 +608,33 @@ int luaWeaponExtraElement(lua_State* L)
 	if (weapon) {
 		uint16_t id = weapon->getID();
 		ItemType& it = Item::items.getItemType(id);
-		it.abilities.get()->elementDamage = getInteger<uint16_t>(L, 2);
+		CombatType_t elementType = getInteger<CombatType_t>(L, 3);
 
-		if (!getInteger<CombatType_t>(L, 3)) {
+		if (!elementType) {
 			std::string element = getString(L, 3);
-			std::string tmpStrValue = boost::algorithm::to_lower_copy<std::string>(element);
+			std::string tmpStrValue = asLowerCaseString(element);
 			if (tmpStrValue == "earth") {
-				it.abilities.get()->elementType = COMBAT_EARTHDAMAGE;
+				elementType = COMBAT_EARTHDAMAGE;
 			} else if (tmpStrValue == "ice") {
-				it.abilities.get()->elementType = COMBAT_ICEDAMAGE;
+				elementType = COMBAT_ICEDAMAGE;
 			} else if (tmpStrValue == "energy") {
-				it.abilities.get()->elementType = COMBAT_ENERGYDAMAGE;
+				elementType = COMBAT_ENERGYDAMAGE;
 			} else if (tmpStrValue == "fire") {
-				it.abilities.get()->elementType = COMBAT_FIREDAMAGE;
+				elementType = COMBAT_FIREDAMAGE;
 			} else if (tmpStrValue == "death") {
-				it.abilities.get()->elementType = COMBAT_DEATHDAMAGE;
+				elementType = COMBAT_DEATHDAMAGE;
 			} else if (tmpStrValue == "holy") {
-				it.abilities.get()->elementType = COMBAT_HOLYDAMAGE;
+				elementType = COMBAT_HOLYDAMAGE;
 			} else {
 				LOG_WARN(fmt::format("[Warning - weapon:extraElement] Type \"{}\" does not exist.", element));
+				pushBoolean(L, false);
+				return 1;
 			}
-		} else {
-			it.abilities.get()->elementType = getInteger<CombatType_t>(L, 3);
 		}
+
+		Abilities& abilities = it.getAbilities();
+		abilities.elementDamage = getInteger<uint16_t>(L, 2);
+		abilities.elementType = elementType;
 		pushBoolean(L, true);
 	} else {
 		lua_pushnil(L);

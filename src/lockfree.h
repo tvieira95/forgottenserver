@@ -5,9 +5,11 @@
 #ifndef FS_LOCKFREE_H
 #define FS_LOCKFREE_H
 
-#include <boost/lockfree/stack.hpp>
+#include <array>
 #include <cstddef>
 #include <functional>
+#include <mutex>
+#include <system_error>
 #include <vector>
 
 /**
@@ -39,7 +41,46 @@ struct LockfreePoolRegistry
 template <std::size_t TSize, std::size_t CAPACITY>
 struct LockfreeFreeList
 {
-	using FreeList = boost::lockfree::stack<void*, boost::lockfree::capacity<CAPACITY>>;
+	class FreeList
+	{
+	public:
+		bool pop(void*& p) noexcept
+		{
+			try {
+				std::lock_guard lock(mutex);
+				if (size == 0) {
+					p = nullptr;
+					return false;
+				}
+
+				p = items[--size];
+				return true;
+			} catch (const std::system_error&) {
+				p = nullptr;
+				return false;
+			}
+		}
+
+		bool bounded_push(void* p) noexcept
+		{
+			try {
+				std::lock_guard lock(mutex);
+				if (size >= CAPACITY) {
+					return false;
+				}
+
+				items[size++] = p;
+				return true;
+			} catch (const std::system_error&) {
+				return false;
+			}
+		}
+
+	private:
+		std::mutex mutex;
+		std::array<void*, CAPACITY> items{};
+		std::size_t size = 0;
+	};
 
 	[[nodiscard]] static FreeList& get() noexcept {
 		static FreeList freeList;

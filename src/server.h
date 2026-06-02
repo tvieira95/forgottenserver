@@ -9,6 +9,8 @@
 #include "logger.h"
 #include <fmt/format.h>
 
+#include <atomic>
+
 class Protocol;
 
 class ServiceBase
@@ -39,7 +41,7 @@ public:
 class ServicePort : public std::enable_shared_from_this<ServicePort>
 {
 public:
-	explicit ServicePort(boost::asio::io_context& io_context) : io_context(io_context) {}
+	explicit ServicePort(asio::io_context& io_context) : io_context(io_context) {}
 	~ServicePort();
 
 	// non-copyable
@@ -56,17 +58,18 @@ public:
 	Protocol_ptr make_protocol(bool checksummed, NetworkMessage& msg, const Connection_ptr& connection) const;
 
 	void onStopServer();
-	void onAccept(Connection_ptr connection, const boost::system::error_code& error);
+	void onAccept(Connection_ptr connection, const asio::error_code& error);
 
 private:
 	void accept();
 
-	boost::asio::io_context& io_context;
-	std::unique_ptr<boost::asio::ip::tcp::acceptor> acceptor;
+	asio::io_context& io_context;
+	std::unique_ptr<asio::ip::tcp::acceptor> acceptor;
 	std::vector<Service_ptr> services;
 
 	uint16_t serverPort = 0;
-	bool pendingStart = false;
+	std::atomic_bool pendingStart = false;
+	std::atomic_bool stopped = false;
 };
 
 class ServiceManager
@@ -92,9 +95,9 @@ private:
 
 	std::unordered_map<uint16_t, ServicePort_ptr> acceptors;
 
-	boost::asio::io_context io_context;
+	asio::io_context io_context;
 	Signals signals{io_context};
-	boost::asio::steady_timer death_timer{io_context};
+	asio::steady_timer death_timer{io_context};
 	std::vector<std::jthread> ioThreads;
 	bool running = false;
 };

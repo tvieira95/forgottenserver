@@ -141,8 +141,8 @@ void ServiceManager::stop()
 
 	for (auto& servicePortIt : acceptors) {
 		try {
-			boost::asio::post(io_context, [servicePort = servicePortIt.second]() { servicePort->onStopServer(); });
-		} catch (boost::system::system_error& e) {
+			asio::post(io_context, [servicePort = servicePortIt.second]() { servicePort->onStopServer(); });
+		} catch (std::system_error& e) {
 			LOG_NETWORK(fmt::format("Error - ServiceManager::stop: {}", e.what()));
 		}
 	}
@@ -150,7 +150,7 @@ void ServiceManager::stop()
 	acceptors.clear();
 
 	death_timer.expires_after(std::chrono::seconds(3));
-	death_timer.async_wait([this](const boost::system::error_code&) { die(); });
+	death_timer.async_wait([this](const asio::error_code&) { die(); });
 }
 
 ServicePort::~ServicePort() { close(); }
@@ -174,28 +174,28 @@ std::string ServicePort::get_protocol_names() const
 
 void ServicePort::accept()
 {
-	if (!acceptor) {
+	if (stopped.load() || !acceptor || !acceptor->is_open()) {
 		return;
 	}
 
 	auto connection = ConnectionManager::getInstance().createConnection(io_context, shared_from_this());
 	if (!connection) {
 		// Max connections reached — schedule retry after a brief delay
-		auto timer = std::make_shared<boost::asio::steady_timer>(io_context);
+		auto timer = std::make_shared<asio::steady_timer>(io_context);
 		timer->expires_after(std::chrono::milliseconds(100));
-		timer->async_wait([timer, thisPtr = shared_from_this()](const boost::system::error_code&) {
+		timer->async_wait([timer, thisPtr = shared_from_this()](const asio::error_code&) {
 			thisPtr->accept();
 		});
 		return;
 	}
 
 	acceptor->async_accept(connection->getSocket(),
-	                       [=, thisPtr = shared_from_this()](const boost::system::error_code& error) {
+	                       [=, thisPtr = shared_from_this()](const asio::error_code& error) {
 		                       thisPtr->onAccept(connection, error);
 	                       });
 }
 
-void ServicePort::onAccept(Connection_ptr connection, const boost::system::error_code& error)
+void ServicePort::onAccept(Connection_ptr connection, const asio::error_code& error)
 {
 	if (!error) {
 		if (services.empty()) {
@@ -225,10 +225,9 @@ void ServicePort::onAccept(Connection_ptr connection, const boost::system::error
 		}
 
 		accept();
-	} else if (error != boost::asio::error::operation_aborted) {
-		if (!pendingStart) {
+	} else if (error != asio::error::operation_aborted) {
+		if (!stopped.load() && !pendingStart.exchange(true)) {
 			close();
-			pendingStart = true;
 			g_scheduler.addEvent(createSchedulerTask(
 			    15000, ([serverPort = this->serverPort, service = std::weak_ptr<ServicePort>(shared_from_this())]() {
 				    openAcceptor(service, serverPort);
@@ -252,42 +251,50 @@ Protocol_ptr ServicePort::make_protocol(bool checksummed, NetworkMessage& msg, c
 	return nullptr;
 }
 
-void ServicePort::onStopServer() { close(); }
+void ServicePort::onStopServer()
+{
+	stopped.store(true);
+	close();
+}
 
 void ServicePort::openAcceptor(std::weak_ptr<ServicePort> weak_service, uint16_t port)
 {
-	if (auto service = weak_service.lock()) {
+	if (auto service = weak_service.lock(); service && !service->stopped.load()) {
 		service->open(port);
 	}
 }
 
 void ServicePort::open(uint16_t port)
 {
+	if (stopped.load()) {
+		return;
+	}
+
 	close();
 
 	serverPort = port;
-	pendingStart = false;
+	pendingStart.store(false);
 
 	try {
 		if (getBoolean(ConfigManager::BIND_ONLY_GLOBAL_ADDRESS)) {
-			acceptor = std::make_unique<boost::asio::ip::tcp::acceptor>(
+			acceptor = std::make_unique<asio::ip::tcp::acceptor>(
 			    io_context,
-			    boost::asio::ip::tcp::endpoint(boost::asio::ip::address(boost::asio::ip::make_address_v4(
+			    asio::ip::tcp::endpoint(asio::ip::address(asio::ip::make_address_v4(
 			                                       std::string{getString(ConfigManager::IP)})),
 			                                   serverPort));
 		} else {
-			acceptor = std::make_unique<boost::asio::ip::tcp::acceptor>(
-			    io_context, boost::asio::ip::tcp::endpoint(
-			                    boost::asio::ip::address(boost::asio::ip::address_v4(INADDR_ANY)), serverPort));
+			acceptor = std::make_unique<asio::ip::tcp::acceptor>(
+			    io_context, asio::ip::tcp::endpoint(
+			                    asio::ip::address(asio::ip::address_v4(INADDR_ANY)), serverPort));
 		}
 
-		acceptor->set_option(boost::asio::ip::tcp::no_delay(true));
+		acceptor->set_option(asio::ip::tcp::no_delay(true));
 
 		accept();
-	} catch (boost::system::system_error& e) {
+	} catch (std::system_error& e) {
 		LOG_NETWORK(fmt::format("Error - ServicePort::open: {}", e.what()));
 
-		if (e.code() == boost::asio::error::address_in_use) {
+		if (e.code() == asio::error::address_in_use) {
 			LOG_ERROR("\x1b[31mATTENTION: network port is already in use. There is likely another TFS process running.\x1b[0m");
 			LOG_ERROR("\x1b[31mTo check, run: ps aux | grep ./tfs\x1b[0m");
 			LOG_ERROR("\x1b[31mTry this first: kill PID\x1b[0m");
@@ -295,17 +302,19 @@ void ServicePort::open(uint16_t port)
 			LOG_ERROR("\x1b[31mThen start the server again.\x1b[0m");
 		}
 
-		pendingStart = true;
-		g_scheduler.addEvent(createSchedulerTask(
-		    15000,
-		    ([port, service = std::weak_ptr<ServicePort>(shared_from_this())]() { openAcceptor(service, port); })));
+		if (!stopped.load()) {
+			pendingStart.store(true);
+			g_scheduler.addEvent(createSchedulerTask(
+			    15000,
+			    ([port, service = std::weak_ptr<ServicePort>(shared_from_this())]() { openAcceptor(service, port); })));
+		}
 	}
 }
 
 void ServicePort::close()
 {
 	if (acceptor && acceptor->is_open()) {
-		boost::system::error_code error;
+		asio::error_code error;
 		acceptor->close(error);
 	}
 }

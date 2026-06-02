@@ -39,7 +39,7 @@ int luaGlobalEventType(lua_State* L)
 	GlobalEvent* global = getUserdata<GlobalEvent>(L, 1);
 	if (global) {
 		std::string typeName = getString(L, 2);
-		std::string tmpStr = boost::algorithm::to_lower_copy<std::string>(typeName);
+		std::string tmpStr = asLowerCaseString(typeName);
 		if (tmpStr == "startup") {
 			global->setEventType(GLOBALEVENT_STARTUP);
 		} else if (tmpStr == "shutdown") {
@@ -55,6 +55,7 @@ int luaGlobalEventType(lua_State* L)
 		} else {
 			LOG_ERROR(fmt::format("[Error - CreatureEvent::configureLuaEvent] Invalid type for global event: {}", typeName));
 			pushBoolean(L, false);
+			return 1;
 		}
 		pushBoolean(L, true);
 	} else {
