@@ -15,14 +15,20 @@
 #include <unordered_set>
 #include <vector>
 
-using ReactorCallback = std::function<void()>;
+#if !defined(__cpp_lib_move_only_function) || __cpp_lib_move_only_function < 202110L
+#error "TaskReactor requires C++23 std::move_only_function support"
+#endif
+
+using ReactorCallback = std::move_only_function<void()>;
 
 class TaskReactor
 {
 public:
 	void start() noexcept;
 	void send(ReactorCallback&& callback);
+	void send(std::chrono::milliseconds expirationTime, ReactorCallback&& callback);
 	void send(uint32_t expirationTime, ReactorCallback&& callback);
+	uint32_t schedule(std::chrono::milliseconds delay, ReactorCallback&& callback);
 	uint32_t schedule(uint32_t delay, ReactorCallback&& callback);
 	void cancel(uint32_t taskIdentifier);
 
@@ -65,7 +71,8 @@ private:
 	std::atomic<uint32_t> nextIdentifier{0};
 	std::atomic<uint64_t> nextSequence{0};
 	std::atomic<ThreadState> threadState{THREAD_STATE_TERMINATED};
-	std::thread::id reactorThreadId;
+
+	static thread_local const TaskReactor* currentReactor;
 };
 
 extern TaskReactor g_reactor;

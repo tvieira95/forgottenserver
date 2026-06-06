@@ -17,30 +17,28 @@ std::unique_ptr<SchedulerTask> createSchedulerTaskWithStats(uint32_t delay, Task
 
 void Scheduler::start() noexcept
 {
-	state.store(THREAD_STATE_RUNNING, std::memory_order_relaxed);
-	g_reactor.start();
+	state.store(THREAD_STATE_RUNNING, std::memory_order_release);
 }
 
 void Scheduler::stop() noexcept
 {
-	state.store(THREAD_STATE_CLOSING, std::memory_order_relaxed);
+	state.store(THREAD_STATE_CLOSING, std::memory_order_release);
 }
 
 void Scheduler::shutdown() noexcept
 {
-	state.store(THREAD_STATE_TERMINATED, std::memory_order_relaxed);
-	g_reactor.shutdown();
+	state.store(THREAD_STATE_TERMINATED, std::memory_order_release);
 }
 
-uint32_t Scheduler::addEvent(std::unique_ptr<SchedulerTask> task)
+uint32_t Scheduler::addEvent(std::unique_ptr<SchedulerTask>&& task)
 {
-	if (!task || state.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED) {
+	if (!task || state.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 		return 0;
 	}
 
-	auto sharedTask = std::make_shared<std::unique_ptr<SchedulerTask>>(std::move(task));
-	const uint32_t eventId = g_reactor.schedule((*sharedTask)->getDelay(), [sharedTask]() {
-		g_dispatcher.executeTask(std::move(*sharedTask));
+	const uint32_t delay = task->getDelay();
+	const uint32_t eventId = g_reactor.schedule(delay, [task = std::move(task)]() mutable {
+		g_dispatcher.executeTask(std::move(task));
 	});
 
 	return eventId;

@@ -5,9 +5,11 @@
 
 #include "reactor.h"
 
+#include "logger.h"
 #include "stats.h"
 
 TaskReactor g_reactor;
+thread_local const TaskReactor* TaskReactor::currentReactor = nullptr;
 
 namespace {
 auto distantFuture() noexcept
@@ -18,29 +20,24 @@ auto distantFuture() noexcept
 
 bool TaskReactor::Task::hasExpired(std::chrono::steady_clock::time_point now) const noexcept
 {
-	return deadline != distantFuture() && deadline < now;
+	return deadline != distantFuture() && deadline <= now;
 }
 
 void TaskReactor::start() noexcept
 {
-	threadState.store(THREAD_STATE_RUNNING, std::memory_order_relaxed);
+	threadState.store(THREAD_STATE_RUNNING, std::memory_order_release);
 }
 
 void TaskReactor::send(ReactorCallback&& callback)
 {
-	send(0, std::move(callback));
-}
-
-void TaskReactor::send(uint32_t expirationTime, ReactorCallback&& callback)
-{
-	if (!callback || threadState.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED) {
+	if (!callback || threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 		return;
 	}
 
 	const auto now = std::chrono::steady_clock::now();
 	Task task{
 	    .fireAt = now,
-	    .deadline = expirationTime == 0 ? distantFuture() : now + std::chrono::milliseconds(expirationTime),
+	    .deadline = distantFuture(),
 	    .sequence = nextSequence.fetch_add(1, std::memory_order_relaxed),
 	    .function = std::move(callback),
 	};
@@ -53,9 +50,41 @@ void TaskReactor::send(uint32_t expirationTime, ReactorCallback&& callback)
 	conditionVariable.notify_one();
 }
 
-uint32_t TaskReactor::schedule(uint32_t delay, ReactorCallback&& callback)
+void TaskReactor::send(std::chrono::milliseconds expirationTime, ReactorCallback&& callback)
 {
-	if (!callback || threadState.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED) {
+	if (!callback || threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
+		return;
+	}
+
+	const auto now = std::chrono::steady_clock::now();
+	Task task{
+	    .fireAt = now,
+	    .deadline = now + expirationTime,
+	    .sequence = nextSequence.fetch_add(1, std::memory_order_relaxed),
+	    .function = std::move(callback),
+	};
+
+	{
+		std::scoped_lock lock(mutex);
+		sendInbox.push_back(std::move(task));
+	}
+
+	conditionVariable.notify_one();
+}
+
+void TaskReactor::send(uint32_t expirationTime, ReactorCallback&& callback)
+{
+	if (expirationTime == 0) {
+		send(std::move(callback));
+		return;
+	}
+
+	send(std::chrono::milliseconds(expirationTime), std::move(callback));
+}
+
+uint32_t TaskReactor::schedule(std::chrono::milliseconds delay, ReactorCallback&& callback)
+{
+	if (!callback || threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 		return 0;
 	}
 
@@ -65,7 +94,7 @@ uint32_t TaskReactor::schedule(uint32_t delay, ReactorCallback&& callback)
 	}
 
 	Task task{
-	    .fireAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(delay),
+	    .fireAt = std::chrono::steady_clock::now() + delay,
 	    .deadline = distantFuture(),
 	    .identifier = identifier,
 	    .sequence = nextSequence.fetch_add(1, std::memory_order_relaxed),
@@ -81,9 +110,14 @@ uint32_t TaskReactor::schedule(uint32_t delay, ReactorCallback&& callback)
 	return identifier;
 }
 
+uint32_t TaskReactor::schedule(uint32_t delay, ReactorCallback&& callback)
+{
+	return schedule(std::chrono::milliseconds(delay), std::move(callback));
+}
+
 void TaskReactor::cancel(uint32_t taskIdentifier)
 {
-	if (taskIdentifier == 0) {
+	if (taskIdentifier == 0 || threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 		return;
 	}
 
@@ -97,17 +131,19 @@ void TaskReactor::cancel(uint32_t taskIdentifier)
 
 void TaskReactor::runLoop()
 {
-	reactorThreadId = std::this_thread::get_id();
+	currentReactor = this;
 
-	while (threadState.load(std::memory_order_relaxed) != THREAD_STATE_TERMINATED) {
+	while (threadState.load(std::memory_order_acquire) == THREAD_STATE_RUNNING) {
 		runOnce();
 
-		if (threadState.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED) {
+		if (threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 			break;
 		}
 
 		waitForWork();
 	}
+
+	currentReactor = nullptr;
 }
 
 void TaskReactor::runOnce()
@@ -122,18 +158,18 @@ void TaskReactor::runOnce()
 
 void TaskReactor::shutdown() noexcept
 {
-	threadState.store(THREAD_STATE_TERMINATED, std::memory_order_relaxed);
-	conditionVariable.notify_one();
+	threadState.store(THREAD_STATE_TERMINATED, std::memory_order_release);
+	conditionVariable.notify_all();
 }
 
 bool TaskReactor::isReactorThread() const noexcept
 {
-	return reactorThreadId == std::this_thread::get_id();
+	return currentReactor == this;
 }
 
 ThreadState TaskReactor::getState() const noexcept
 {
-	return threadState.load(std::memory_order_relaxed);
+	return threadState.load(std::memory_order_acquire);
 }
 
 bool TaskReactor::taskComesAfter(const Task& lhs, const Task& rhs) noexcept
@@ -205,35 +241,38 @@ void TaskReactor::executeReadyTasks(std::vector<Task>& readyTasks)
 	});
 
 	for (auto& task : readyTasks) {
-		if (task.function) {
+		if (!task.function) {
+			continue;
+		}
+
+		try {
 			task.function();
+		} catch (const std::exception& exception) {
+			LOG_ERROR("[TaskReactor] Unhandled task exception: {}", exception.what());
+		} catch (...) {
+			LOG_ERROR("[TaskReactor] Unhandled non-standard task exception");
 		}
 	}
 }
 
 void TaskReactor::waitForWork()
 {
-	auto timeout = std::chrono::milliseconds(100);
-
-	if (!taskHeap.empty()) {
-		const auto now = std::chrono::steady_clock::now();
-		if (taskHeap.front().fireAt > now) {
-			timeout = std::chrono::duration_cast<std::chrono::milliseconds>(taskHeap.front().fireAt - now);
-		} else {
-			timeout = std::chrono::milliseconds::zero();
-		}
-	}
-
 #ifdef STATS_ENABLED
 	const auto waitStart = std::chrono::steady_clock::now();
 #endif
 	auto wakePredicate = [this]() {
-		return threadState.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED || !sendInbox.empty() ||
+		return threadState.load(std::memory_order_acquire) != THREAD_STATE_RUNNING || !sendInbox.empty() ||
 		       !scheduleInbox.empty() || !cancelInbox.empty();
 	};
 
 	std::unique_lock lock(mutex);
-	conditionVariable.wait_for(lock, timeout, wakePredicate);
+	if (!wakePredicate()) {
+		if (taskHeap.empty()) {
+			conditionVariable.wait(lock, wakePredicate);
+		} else {
+			conditionVariable.wait_until(lock, taskHeap.front().fireAt, wakePredicate);
+		}
+	}
 	lock.unlock();
 
 #ifdef STATS_ENABLED

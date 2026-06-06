@@ -8,7 +8,7 @@
 #include "stats.h"
 #include "thread_pool.h"
 
-using TaskFunc = std::function<void()>;
+using TaskFunc = ReactorCallback;
 
 inline constexpr int DISPATCHER_TASK_EXPIRATION = 2000;
 inline constexpr uint64_t SLOW_TASK_THRESHOLD_NS = 50'000'000; // 50ms in nanoseconds
@@ -53,7 +53,7 @@ public:
 	void join() noexcept {}
 	void shutdown() noexcept;
 
-	void addTask(std::unique_ptr<Task> task);
+	void addTask(std::unique_ptr<Task>&& task);
 	void addTask(TaskFunc&& f) { addTask(createTask(std::move(f))); }
 	void addTask(uint32_t expiration, TaskFunc&& f) { addTask(createTimedTask(expiration, std::move(f))); }
 	void executeTask(std::unique_ptr<Task> task);
@@ -74,6 +74,7 @@ public:
 	[[nodiscard]] int getDispatcherId() const noexcept { return dispatcherId; }
 	[[nodiscard]] uint64_t getTotalTasksProcessed() const noexcept { return totalTasksProcessed; }
 	[[nodiscard]] uint64_t getSlowTaskCount() const noexcept { return slowTaskCount; }
+	[[nodiscard]] ThreadState getState() const noexcept { return state.load(std::memory_order_acquire); }
 
 private:
 	std::atomic<ThreadState> state{THREAD_STATE_TERMINATED};

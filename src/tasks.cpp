@@ -54,34 +54,33 @@ Dispatcher::Dispatcher()
 
 void Dispatcher::start() noexcept
 {
-	state.store(THREAD_STATE_RUNNING, std::memory_order_relaxed);
+	state.store(THREAD_STATE_RUNNING, std::memory_order_release);
 	g_reactor.start();
 }
 
 void Dispatcher::stop() noexcept
 {
-	state.store(THREAD_STATE_CLOSING, std::memory_order_relaxed);
+	state.store(THREAD_STATE_CLOSING, std::memory_order_release);
 }
 
 void Dispatcher::shutdown() noexcept
 {
-	state.store(THREAD_STATE_TERMINATED, std::memory_order_relaxed);
+	state.store(THREAD_STATE_TERMINATED, std::memory_order_release);
 	g_reactor.shutdown();
 }
 
-void Dispatcher::addTask(std::unique_ptr<Task> task)
+void Dispatcher::addTask(std::unique_ptr<Task>&& task)
 {
-	if (!task || state.load(std::memory_order_relaxed) == THREAD_STATE_TERMINATED) {
+	if (!task || state.load(std::memory_order_acquire) != THREAD_STATE_RUNNING) {
 		return;
 	}
 
-	auto sharedTask = std::make_shared<std::unique_ptr<Task>>(std::move(task));
-	g_reactor.send([this, sharedTask]() { executeTask(std::move(*sharedTask)); });
+	g_reactor.send([this, task = std::move(task)]() mutable { executeTask(std::move(task)); });
 }
 
 void Dispatcher::executeTask(std::unique_ptr<Task> task)
 {
-	if (!task || task->hasExpired()) {
+	if (!task || state.load(std::memory_order_acquire) != THREAD_STATE_RUNNING || task->hasExpired()) {
 		return;
 	}
 

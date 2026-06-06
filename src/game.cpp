@@ -443,19 +443,13 @@ void Game::setGameState(GameState_t newState)
 			saveMotdNum();
 			saveGameState();
 
-			{
-				auto shutdownTask = createTaskWithStats([this]() { shutdown(); }, "Game::shutdown", "setGameState");
-				shutdownTask->trackInStats = false;
-				shutdownTask->skipSlowDetection = true;
-				g_dispatcher.addTask(std::move(shutdownTask));
-			}
-
 			g_scheduler.stop();
 			g_databaseTasks.stop();
 			g_dispatcher.stop();
 #ifdef STATS_ENABLED
 			g_stats.stop();
 #endif
+			shutdown();
 			LOG_INFO(">> Shutdown complete.");
 			break;
 		}

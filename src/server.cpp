@@ -108,8 +108,10 @@ void ServiceManager::die()
 
 void ServiceManager::run()
 {
-	assert(!running);
-	running = true;
+	bool expected = false;
+	if (!running.compare_exchange_strong(expected, true)) {
+		return;
+	}
 
 	// Spawn additional io_context threads for parallel I/O (XTEA encrypt + async_write).
 	// The main thread also runs io_context.run(), so total = networkThreads.
@@ -124,6 +126,7 @@ void ServiceManager::run()
 	}
 
 	io_context.run();
+	running.store(false, std::memory_order_release);
 
 	// After io_context.stop() is called in die(), all io_context.run() calls return.
 	// Now we are back on the main thread (startServer → serviceManager.run()),
@@ -133,11 +136,9 @@ void ServiceManager::run()
 
 void ServiceManager::stop()
 {
-	if (!running) {
+	if (!running.exchange(false, std::memory_order_acq_rel)) {
 		return;
 	}
-
-	running = false;
 
 	for (auto& servicePortIt : acceptors) {
 		try {

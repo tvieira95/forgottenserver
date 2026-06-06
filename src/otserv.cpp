@@ -438,6 +438,7 @@ void startServer()
 		}
 	});
 
+	serviceManager->stop();
 	if (serviceThread.joinable()) {
 		serviceThread.join();
 	}

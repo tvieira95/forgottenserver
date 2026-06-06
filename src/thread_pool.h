@@ -15,6 +15,12 @@
 #include <condition_variable>
 #include <atomic>
 
+#if !defined(__cpp_lib_move_only_function) || __cpp_lib_move_only_function < 202110L
+#error "ThreadPool requires C++23 std::move_only_function support"
+#endif
+
+using ThreadPoolTask = std::move_only_function<void()>;
+
 class ThreadPool
 {
 public:
@@ -40,7 +46,7 @@ public:
 	 * @brief Submit a fire-and-forget task to the pool.
 	 * Thread-safe - can be called from any thread.
 	 */
-	void detach_task(std::function<void()>&& task);
+	void detach_task(ThreadPoolTask&& task);
 
 	/**
 	 * @brief Submit a task and get a future for its result.
@@ -54,15 +60,15 @@ public:
 	auto submit_task(F&& f) -> std::future<decltype(f())>
 	{
 		using ReturnType = decltype(f());
-		auto task = std::make_shared<std::packaged_task<ReturnType()>>(std::forward<F>(f));
-		auto future = task->get_future();
+		std::packaged_task<ReturnType()> task(std::forward<F>(f));
+		auto future = task.get_future();
 
 		{
 			std::scoped_lock lock(queueMutex);
 			if (stopped) {
 				throw std::runtime_error("ThreadPool: cannot submit task after shutdown");
 			}
-			taskQueue.emplace([task]() { (*task)(); });
+			taskQueue.emplace([task = std::move(task)]() mutable { task(); });
 		}
 		condition.notify_one();
 
@@ -83,7 +89,7 @@ private:
 	void workerMain();
 
 	std::vector<std::jthread> workers;
-	std::queue<std::function<void()>> taskQueue;
+	std::queue<ThreadPoolTask> taskQueue;
 
 	std::mutex queueMutex;
 	std::condition_variable condition;

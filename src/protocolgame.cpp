@@ -980,8 +980,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			if (shouldSendQuickLootFlags()) {
 				parseQuickLoot(msg);
 			} else {
-				g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+				g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+				                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 				});
 			}
 			break;
@@ -989,8 +990,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			if (shouldSendQuickLootFlags()) {
 				parseLootContainer(msg);
 			} else {
-				g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+				g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+				                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 				});
 			}
 			break;
@@ -998,8 +1000,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			if (shouldSendQuickLootFlags()) {
 				parseQuickLootBlackWhitelist(msg);
 			} else {
-				g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+				g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+				                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+					g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 				});
 			}
 			break;
@@ -1078,8 +1081,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			parseBugReport(msg);
 			break;
 		case 0xE7: /* thank you / custom wheel gem action */
-			g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+			g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+			                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 			});
 			break;
 		case 0xF2:
@@ -1091,8 +1095,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 		case 0xFA: /* custom store history */
 		case 0xFB: /* custom store open */
 		case 0xFC: /* custom store buy */
-			g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+			g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+			                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 			});
 			break;
 		case 0xF9:
@@ -1100,10 +1105,9 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			break;
 
 		default:
-			// we cannot pass a unique_ptr as capture here because
-			// std::function requires the callable object to be *copyable*
-			g_dispatcher.addTask([=, playerID = player->getID(), message = std::make_shared<NetworkMessage>(msg)]() {
-				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::make_unique<NetworkMessage>(*message));
+			g_dispatcher.addTask([playerID = player->getID(), recvbyte,
+			                      message = std::make_unique<NetworkMessage>(msg)]() mutable {
+				g_game.parsePlayerNetworkMessage(playerID, recvbyte, std::move(message));
 			});
 			break;
 	}
