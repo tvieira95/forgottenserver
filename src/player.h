@@ -232,6 +232,8 @@ public:
 	bool isInWarList(uint32_t guildId) const;
 
 	uint16_t getClientIcons() const;
+	uint64_t getClientIcons64() const;
+	IconBakragore_t getBakragoreIcon() const;
 
 	const GuildWarVector& getGuildWarVector() const { return guildWarVector; }
 
@@ -796,6 +798,14 @@ public:
 		}
 	}
 
+	void sendCreatureIcon(const Creature* creature) const
+	{
+		if (!client) {
+			return;
+		}
+		client->sendCreatureIcon(creature);
+	}
+
 	void checkSkullTicks(int64_t ticks);
 
 	bool canWear(uint32_t lookType, uint8_t addons) const;
@@ -1108,9 +1118,10 @@ public:
 	void sendClosePrivate(uint16_t channelId);
 	void sendIcons() const
 	{
-		if (client) {
-			client->sendIcons(getClientIcons());
+		if (!client) {
+			return;
 		}
+		client->sendIcons(getClientIcons());
 	}
 	void sendMagicEffect(const Position& pos, uint16_t type) const
 	{

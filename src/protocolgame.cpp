@@ -2007,13 +2007,13 @@ void ProtocolGame::sendCreatureShield(const Creature* creature)
 
 void ProtocolGame::sendCreatureSkull(const Creature* creature)
 {
-	// Allow influenced monsters to show skull in any world type
-	bool isInfluencedMonster = false;
+	// Allow influenced/fiendish monsters to show skull regardless of world type
+	bool isForgeMonster = false;
 	if (const Monster* monster = creature->getMonster()) {
-		isInfluencedMonster = monster->isInfluenced();
+		isForgeMonster = monster->isInfluenced() || monster->isFiendish();
 	}
 
-	if (!isInfluencedMonster && g_game.getWorldType() != WORLD_TYPE_PVP) {
+	if (!isForgeMonster && g_game.getWorldType() != WORLD_TYPE_PVP) {
 		return;
 	}
 
@@ -2197,6 +2197,54 @@ void ProtocolGame::sendIcons(uint16_t icons)
 	msg.addByte(0xA2);
 	msg.add<uint16_t>(icons);
 	writeToOutputBuffer(msg);
+}
+
+void ProtocolGame::sendIcons(uint64_t icons, IconBakragore_t bakragoreIcon)
+{
+	if (!player || !supportsAstraCreatureIcons()) {
+		return;
+	}
+
+	NetworkMessage msg;
+	msg.addByte(0xA2);
+	msg.add<uint64_t>(icons);
+	msg.addByte(static_cast<uint8_t>(bakragoreIcon));
+	writeToOutputBuffer(msg);
+}
+
+void ProtocolGame::sendCreatureIcon(const Creature* creature)
+{
+	if (!creature || !player || !supportsAstraCreatureIcons()) {
+		return;
+	}
+
+	if (!canSee(creature)) {
+		return;
+	}
+
+	NetworkMessage msg;
+	msg.addByte(0x8B);
+	msg.add<uint32_t>(creature->getID());
+	msg.addByte(14);
+	AddCreatureIcon(msg, creature);
+	writeToOutputBuffer(msg);
+}
+
+void ProtocolGame::AddCreatureIcon(NetworkMessage& msg, const Creature* creature)
+{
+	if (!creature) {
+		return;
+	}
+
+	const auto& icons = creature->getIcons();
+	const size_t count = std::min<size_t>(icons.size(), 3);
+	msg.addByte(static_cast<uint8_t>(count));
+	for (size_t i = 0; i < count; ++i) {
+		const auto& icon = icons[i];
+		msg.addByte(icon.serialize());
+		msg.addByte(static_cast<uint8_t>(icon.category));
+		msg.add<uint16_t>(icon.count);
+	}
 }
 
 void ProtocolGame::sendContainer(uint8_t cid, const Container* container, bool hasParent, uint16_t firstIndex)
@@ -3420,6 +3468,10 @@ void ProtocolGame::AddCreature(NetworkMessage& msg, const Creature* creature, bo
 	}
 
 	msg.addByte(player->canWalkthroughEx(creature) ? 0x00 : 0x01);
+
+	if (supportsAstraCreatureIcons()) {
+		AddCreatureIcon(msg, creature);
+	}
 }
 
 void ProtocolGame::AddPlayerStats(NetworkMessage& msg)

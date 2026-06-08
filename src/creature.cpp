@@ -1745,6 +1745,11 @@ void Creature::setStorageValue(uint32_t key, std::optional<int64_t> value, bool 
 	g_events->eventCreatureOnUpdateStorage(this, key, oldValue, value, isSpawn);
 }
 
+void Creature::iconChanged()
+{
+	g_game.updateCreatureIcon(this);
+}
+
 std::optional<int64_t> Creature::getStorageValue(uint32_t key) const
 {
 	auto it = storageMap.find(key);

@@ -1081,6 +1081,34 @@ uint16_t Player::getClientIcons() const
 	return icon_bitset.to_ulong();
 }
 
+uint64_t Player::getClientIcons64() const
+{
+	uint64_t icons = 0;
+	for (const auto& condition : conditions) {
+		if (!isSuppress(condition->getType())) {
+			icons |= condition->getIcons();
+		}
+	}
+
+	if (pzLocked) {
+		icons |= static_cast<uint64_t>(PlayerIcon_RedSwords);
+	}
+
+	if (const Tile* playerTile = getTile(); playerTile && playerTile->hasFlag(TILESTATE_PROTECTIONZONE)) {
+		icons |= static_cast<uint64_t>(PlayerIcon_Pigeon);
+		if (icons & static_cast<uint64_t>(PlayerIcon_Swords)) {
+			icons &= ~static_cast<uint64_t>(PlayerIcon_Swords);
+		}
+	}
+
+	return icons;
+}
+
+IconBakragore_t Player::getBakragoreIcon() const
+{
+	return IconBakragore_None;
+}
+
 void Player::updateInventoryWeight()
 {
 	inventoryWeight = 0;
@@ -5203,10 +5231,13 @@ Skulls_t Player::getSkullClient(const Creature* creature) const
 		return SKULL_NONE;
 	}
 
-	// Influenced monsters always show green skull regardless of world type
+	// Influenced/fiendish: OTC gets skull, Astra gets creature icon via 0x8B
 	if (const Monster* monster = creature->getMonster()) {
-		if (monster->isInfluenced()) {
-			return SKULL_GREEN;
+		if (monster->isInfluenced() || monster->isFiendish()) {
+			if (isAstraClient()) {
+				return SKULL_NONE;
+			}
+			return monster->isInfluenced() ? SKULL_GREEN : SKULL_RED;
 		}
 	}
 
@@ -6379,7 +6410,7 @@ void Player::lootCorpse(Container* container)
 
 void Player::sendLootContainers() const
 {
-	if (client) {
+	if (client && isAstraClient()) {
 		client->sendLootContainers();
 	}
 }

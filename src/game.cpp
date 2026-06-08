@@ -6864,15 +6864,46 @@ void Game::updateCreatureEmblem(Creature* creature)
 	}
 }
 
-void Game::updateCreatureSkull(const Creature* creature)
+void Game::updateCreatureIcon(const Player* spectator, const Creature* creature)
 {
-	// Allow influenced monsters to show skull in any world type
-	bool isInfluencedMonster = false;
-	if (const Monster* monster = creature->getMonster()) {
-		isInfluencedMonster = monster->isInfluenced();
+	if (!spectator || !creature) {
+		return;
+	}
+	spectator->sendCreatureIcon(creature);
+}
+
+void Game::updateCreatureIcon(const Creature* creature)
+{
+	if (!creature) {
+		return;
 	}
 
-	if (!isInfluencedMonster && getWorldType() != WORLD_TYPE_PVP) {
+	const Tile* tile = creature->getTile();
+	if (!tile) {
+		return;
+	}
+
+	SpectatorVec spectators;
+	map.getSpectators(spectators, tile->getPosition(), true, true);
+	const uint32_t creatureInstance = creature->getInstanceID();
+	for (const auto& spectator : spectators.players()) {
+		Player* p = static_cast<Player*>(spectator.get());
+		if (!p->compareInstance(creatureInstance)) {
+			continue;
+		}
+		p->sendCreatureIcon(creature);
+	}
+}
+
+void Game::updateCreatureSkull(const Creature* creature)
+{
+	// Allow influenced/fiendish monsters to show skull in any world type
+	bool isForgeMonster = false;
+	if (const Monster* monster = creature->getMonster()) {
+		isForgeMonster = monster->isInfluenced() || monster->isFiendish();
+	}
+
+	if (!isForgeMonster && getWorldType() != WORLD_TYPE_PVP) {
 		return;
 	}
 

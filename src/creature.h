@@ -17,6 +17,7 @@
 #include <absl/container/flat_hash_map.h>
 
 #include <cassert>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -495,8 +496,57 @@ protected:
 	friend class Map;
 	friend class LuaScriptInterface;
 
+public:
+	std::vector<CreatureIcon> getIcons() const {
+		std::vector<CreatureIcon> icons;
+		icons.reserve(creatureIcons.size());
+		for (const auto& [_, icon] : creatureIcons) {
+			if (icon.isSet()) {
+				icons.emplace_back(icon);
+			}
+		}
+		return icons;
+	}
+
+	void setIcon(const std::string& key, CreatureIcon icon) {
+		if (icon.isNone()) {
+			if (creatureIcons.erase(key)) {
+				iconChanged();
+			}
+			return;
+		}
+		auto it = creatureIcons.find(key);
+		if (it != creatureIcons.end() && it->second.serialize() == icon.serialize()
+		    && it->second.category == icon.category && it->second.count == icon.count) {
+			return; // no change
+		}
+		creatureIcons[key] = icon;
+		iconChanged();
+	}
+
+	void removeIcon(const std::string& key) {
+		if (creatureIcons.erase(key)) {
+			iconChanged();
+		}
+	}
+
+	void clearIcons() {
+		if (!creatureIcons.empty()) {
+			creatureIcons.clear();
+			iconChanged();
+		}
+	}
+
+	void iconChanged();
+
+	bool hasIcon(const std::string& key) const {
+		auto it = creatureIcons.find(key);
+		return it != creatureIcons.end() && it->second.isSet();
+	}
+
 private:
 	StorageMap storageMap;
+	std::map<std::string, CreatureIcon> creatureIcons;
 
 	static std::unordered_set<const Creature*> liveCreatures;
 };

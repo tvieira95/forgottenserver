@@ -1330,6 +1330,112 @@ int LuaScriptInterface::luaCreatureGC(lua_State* L)
 	return 0;
 }
 
+int luaCreatureSetIcon(lua_State* L)
+{
+	// creature:setIcon(key, category, iconId, count)
+	Creature* creature = getCreature(L, 1);
+	if (!creature) {
+		reportErrorFunc(L, LuaScriptInterface::getErrorDesc(LuaErrorCode::CREATURE_NOT_FOUND));
+		Lua::pushBoolean(L, false);
+		return 1;
+	}
+
+	std::string key = Lua::getString(L, 2);
+	CreatureIconCategory_t category = Lua::getInteger<CreatureIconCategory_t>(L, 3);
+	if (category != CreatureIconCategory_Quests && category != CreatureIconCategory_Modifications) {
+		reportErrorFunc(L, "setIcon: category must be CreatureIconCategory_Quests (0) or CreatureIconCategory_Modifications (1)");
+		Lua::pushBoolean(L, false);
+		return 1;
+	}
+	uint8_t iconId = Lua::getInteger<uint8_t>(L, 4);
+	uint16_t count = Lua::getInteger<uint16_t>(L, 5, 0);
+
+	CreatureIcon icon;
+	if (category == CreatureIconCategory_Modifications) {
+		icon = CreatureIcon(static_cast<CreatureIconModifications_t>(iconId), count);
+	} else {
+		icon = CreatureIcon(static_cast<CreatureIconQuests_t>(iconId), count);
+	}
+
+	creature->setIcon(key, icon);
+	Lua::pushBoolean(L, true);
+	return 1;
+}
+
+int luaCreatureRemoveIcon(lua_State* L)
+{
+	// creature:removeIcon(key)
+	Creature* creature = getCreature(L, 1);
+	if (!creature) {
+		reportErrorFunc(L, LuaScriptInterface::getErrorDesc(LuaErrorCode::CREATURE_NOT_FOUND));
+		Lua::pushBoolean(L, false);
+		return 1;
+	}
+
+	std::string key = Lua::getString(L, 2);
+	creature->removeIcon(key);
+	Lua::pushBoolean(L, true);
+	return 1;
+}
+
+int luaCreatureGetIcons(lua_State* L)
+{
+	// creature:getIcons() -> returns table of { key, category, iconId, count }
+	Creature* creature = getCreature(L, 1);
+	if (!creature) {
+		reportErrorFunc(L, LuaScriptInterface::getErrorDesc(LuaErrorCode::CREATURE_NOT_FOUND));
+		lua_pushnil(L);
+		return 1;
+	}
+
+	const auto& icons = creature->getIcons();
+	lua_newtable(L);
+	int index = 1;
+	for (const auto& icon : icons) {
+		if (!icon.isSet()) {
+			continue;
+		}
+		lua_newtable(L);
+		lua_pushinteger(L, static_cast<int32_t>(icon.category));
+		lua_setfield(L, -2, "category");
+		lua_pushinteger(L, icon.serialize());
+		lua_setfield(L, -2, "iconId");
+		lua_pushinteger(L, icon.count);
+		lua_setfield(L, -2, "count");
+		lua_rawseti(L, -2, index++);
+	}
+	return 1;
+}
+
+int luaCreatureClearIcons(lua_State* L)
+{
+	// creature:clearIcons()
+	Creature* creature = getCreature(L, 1);
+	if (!creature) {
+		reportErrorFunc(L, LuaScriptInterface::getErrorDesc(LuaErrorCode::CREATURE_NOT_FOUND));
+		Lua::pushBoolean(L, false);
+		return 1;
+	}
+	creature->clearIcons();
+	Lua::pushBoolean(L, true);
+	return 1;
+}
+
+int luaCreatureSendCreatureIcon(lua_State* L)
+{
+	// creature:sendCreatureIcon() — send icon update to all spectators
+	Creature* creature = getCreature(L, 1);
+	if (!creature) {
+		reportErrorFunc(L, LuaScriptInterface::getErrorDesc(LuaErrorCode::CREATURE_NOT_FOUND));
+		Lua::pushBoolean(L, false);
+		return 1;
+	}
+
+	creature->iconChanged();
+	Lua::pushBoolean(L, true);
+	return 1;
+}
+
 void LuaScriptInterface::registerCreature()
 {
 	// Creature
@@ -1429,4 +1535,10 @@ void LuaScriptInterface::registerCreature()
 	registerMethod("Creature", "getInstanceId", luaCreatureGetInstanceId);
 	registerMethod("Creature", "setInstanceId", luaCreatureSetInstanceId);
 	registerMethod("Creature", "setInstanceIdRaw", luaCreatureSetInstanceIdRaw);
+
+	registerMethod("Creature", "setIcon", luaCreatureSetIcon);
+	registerMethod("Creature", "removeIcon", luaCreatureRemoveIcon);
+	registerMethod("Creature", "clearIcons", luaCreatureClearIcons);
+	registerMethod("Creature", "getIcons", luaCreatureGetIcons);
+	registerMethod("Creature", "sendCreatureIcon", luaCreatureSendCreatureIcon);
 }
