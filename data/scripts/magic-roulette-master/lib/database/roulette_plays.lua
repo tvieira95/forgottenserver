@@ -1,10 +1,26 @@
 --[[
 	Description: This file is part of Roulette System (refactored)
-	Author: Lyµ
-	Discord: Lyµ#8767
+	Author: Lyï¿½
+	Discord: Lyï¿½#8767
 ]]
 
 local DatabaseRoulettePlays = {}
+
+db.query([[
+	CREATE TABLE IF NOT EXISTS `roulette_plays` (
+		`id` int NOT NULL AUTO_INCREMENT,
+		`player_id` int NOT NULL,
+		`uuid` varchar(36) NOT NULL,
+		`reward_id` int NOT NULL,
+		`reward_count` int NOT NULL DEFAULT 1,
+		`status` tinyint NOT NULL DEFAULT 0,
+		`created_at` int NOT NULL DEFAULT 0,
+		`updated_at` int NOT NULL DEFAULT 0,
+		PRIMARY KEY (`id`),
+		KEY `player_id` (`player_id`),
+		KEY `uuid` (`uuid`)
+	) ENGINE=InnoDB DEFAULT CHARSET=utf8
+]])
 
 function DatabaseRoulettePlays:create(uuid, playerId, reward) 
 	db.query(('INSERT INTO roulette_plays (player_id, uuid, reward_id, reward_count) VALUES (%d, %s, %d, %d)'):format(
@@ -69,7 +85,7 @@ function DatabaseRoulettePlays:selectPendingPlayRewardsByPlayerGuid(guid)
 end
 
 function DatabaseRoulettePlays:updateAllRollingToPending()
-	db.query('UPDATE roulette_plays SET status = 1 WHERE status = 0')
+	pcall(function() db.query('UPDATE roulette_plays SET status = 1 WHERE status = 0') end)
 end
 
 return DatabaseRoulettePlays
