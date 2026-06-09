@@ -214,6 +214,9 @@ private:
 	void sendSpellCooldown(uint16_t spellId, uint32_t time);
 	void sendSpellGroupCooldown(SpellGroup_t groupId, uint32_t time);
 	void sendUseItemCooldown(uint32_t time);
+	void sendExtendedOpcode(uint8_t opcode, std::string_view data);
+	void sendBlessingWindow();
+	void sendBlessStatus();
 
 	// tiles
 	void sendMapDescription(const Position& pos);

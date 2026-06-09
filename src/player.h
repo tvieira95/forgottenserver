@@ -21,6 +21,9 @@
 #include "storeinbox.h"
 #include "town.h"
 #include "vocation.h"
+#include "weapon_proficiency.h"
+#include <array>
+#include <vector>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -80,6 +83,13 @@ struct VIPEntry
 	std::string name;
 };
 
+struct DeathLogEntry
+{
+	uint32_t timestamp = 0;
+	uint8_t color = 0;    // 0 = white (loss), 1 = red (blood)
+	std::string message;
+};
+
 struct ProficiencySpellAugmentBonus
 {
 	int32_t damagePercent = 0;
@@ -122,7 +132,7 @@ struct AutoLootConfig
 using MuteCountMap = std::unordered_map<uint32_t, uint32_t>;
 
 inline constexpr int32_t PLAYER_MIN_SPEED = 10;
-inline constexpr int32_t PLAYER_MAX_BLESSINGS = 5;
+inline constexpr int32_t PLAYER_MAX_BLESSINGS = 8;
 
 inline constexpr int32_t AVATAR_TIMER_STORAGE = 50099;
 inline constexpr int32_t AVATAR_DAMAGE_REDUCTION_PERCENT = 10;
@@ -339,14 +349,22 @@ public:
 
 	bool hasFlag(PlayerFlags value) const { return (group->flags & value) != 0; }
 
-	void addBlessing(uint8_t blessing) { blessings.set(blessing); }
-	void removeBlessing(uint8_t blessing) { blessings.reset(blessing); }
-	bool hasBlessing(uint8_t blessing) const { return blessings.test(blessing); }
+	void addBlessing(uint8_t blessing, uint8_t count = 1);
+	void removeBlessing(uint8_t blessing, uint8_t count = 1);
+	bool hasBlessing(uint8_t blessing) const;
+	uint8_t getBlessingCount(uint8_t blessing) const;
+	void sendBlessStatus();
+	double getEquipmentLossPercent(bool isContainer) const;
+	uint8_t getBlessingReduction() const;
+
+	const std::vector<DeathLogEntry>& getDeathLog() const { return m_deathLog; }
+	void addDeathLog(uint32_t timestamp, uint8_t color, std::string_view message);
 
 	uint8_t getHarmony() const { return m_harmony; }
 	void setHarmony(uint8_t value) {
 		uint8_t minHarmony = (getVirtue() == VIRTUE_HARMONY) ? 1 : 0;
 		m_harmony = static_cast<uint8_t>(std::clamp<int>(value, minHarmony, 5));
+		sendMonkData();
 	}
 	void addHarmony(uint8_t value) { setHarmony(m_harmony + value); }
 	void removeHarmony(uint8_t value) {
@@ -355,7 +373,7 @@ public:
 	}
 
 	bool isSerene() const { return m_serene; }
-	void setSerene(bool serene) { m_serene = serene; }
+	void setSerene(bool serene) { m_serene = serene; sendMonkData(); }
 
 	uint64_t getSereneCooldown() const {
 		uint64_t now = OTSYS_TIME();
@@ -380,7 +398,10 @@ public:
 				m_virtue = VIRTUE_NONE;
 				break;
 		}
+		sendMonkData();
 	}
+
+	void sendMonkData();
 
 	void clearCooldowns();
 
@@ -439,10 +460,22 @@ public:
 	uint32_t getReset() const { return reset; }
 	void setReset(uint32_t newReset) { reset = newReset; }
 	uint8_t getLevelPercent() const { return levelPercent; }
-	uint32_t getMagicLevel() const { return std::max<int32_t>(0, magLevel + varStats[STAT_MAGICPOINTS]); }
+	uint32_t getMagicLevel() const
+	{
+		int32_t ml = magLevel + varStats[STAT_MAGICPOINTS];
+		if (ConfigManager::getBoolean(ConfigManager::WEAPON_PROFICIENCY_SYSTEM_ENABLED)) {
+			int32_t bonus = static_cast<int32_t>(weaponProficiency().getSkillBonus(SKILL_MAGLEVEL));
+			ml += bonus;
+		}
+		return std::max<int32_t>(0, ml);
+	}
 	uint32_t getSpecialMagicLevel(CombatType_t type) const
 	{
-		return std::max<int32_t>(0, specialMagicLevelSkill[combatTypeToIndex(type)]);
+		int32_t base = specialMagicLevelSkill[combatTypeToIndex(type)];
+		if (ConfigManager::getBoolean(ConfigManager::WEAPON_PROFICIENCY_SYSTEM_ENABLED)) {
+			base += static_cast<int32_t>(weaponProficiency().getSpecializedMagic(type));
+		}
+		return std::max<int32_t>(0, base);
 	}
 	int32_t getExperienceRate(ExperienceRateType type) const { return experienceRate[static_cast<size_t>(type)]; }
 	uint32_t getBaseMagicLevel() const { return magLevel; }
@@ -539,6 +572,10 @@ public:
 	void clearWheelSpellAugments();
 	void addWheelSpellAugment(std::string spellName, Augment_t augmentType, double value);
 	ProficiencySpellAugmentBonus getWheelSpellAugmentBonus(std::string_view spellName) const;
+
+	WeaponProficiency& weaponProficiency() { assert(m_weaponProficiency); return *m_weaponProficiency; }
+	const WeaponProficiency& weaponProficiency() const { assert(m_weaponProficiency); return *m_weaponProficiency; }
+
 	bool hasInventoryItem(slots_t slot, const std::shared_ptr<const Item>& item) const;
 	bool isInventorySlot(slots_t slot) const;
 
@@ -712,7 +749,12 @@ public:
 	}
 	uint16_t getSkillLevel(uint8_t skill) const
 	{
-		return static_cast<uint16_t>(std::max<int32_t>(0, skills[skill].level + varSkills[skill]));
+		int32_t base = skills[skill].level + varSkills[skill];
+		if (ConfigManager::getBoolean(ConfigManager::WEAPON_PROFICIENCY_SYSTEM_ENABLED)) {
+			int32_t bonus = static_cast<int32_t>(weaponProficiency().getSkillBonus(static_cast<skills_t>(skill)));
+			return static_cast<uint16_t>(std::max<int32_t>(0, base + bonus));
+		}
+		return static_cast<uint16_t>(std::max<int32_t>(0, base));
 	}
 	uint16_t getSpecialMagicLevelSkill(CombatType_t type) const
 	{
@@ -1010,6 +1052,13 @@ public:
 	{
 		if (client) {
 			client->sendUseItemCooldown(time);
+		}
+	}
+
+	void sendExtendedOpcode(uint8_t opcode, std::string_view data)
+	{
+		if (client) {
+			client->sendExtendedOpcode(opcode, data);
 		}
 	}
 
@@ -1532,6 +1581,7 @@ private:
 	std::shared_ptr<Item> inventory[CONST_SLOT_LAST + 1] = {};
 	std::unordered_map<uint16_t, std::unordered_map<uint16_t, ProficiencySpellAugmentBonus>> proficiencySpellAugments;
 	std::unordered_map<std::string, ProficiencySpellAugmentBonus> wheelSpellAugments;
+	std::unique_ptr<WeaponProficiency> m_weaponProficiency;
 	std::weak_ptr<Item> writeItem;
 	std::weak_ptr<House> editHouse;
 	std::weak_ptr<Npc> shopOwner;
@@ -1604,7 +1654,8 @@ private:
 	uint32_t staminaTrainerDelayMs = 0;
 
 	uint8_t soul = 0;
-	std::bitset<PLAYER_MAX_BLESSINGS + 1> blessings;
+	std::array<uint8_t, PLAYER_MAX_BLESSINGS + 1> blessings{};
+	std::vector<DeathLogEntry> m_deathLog;
 	uint8_t levelPercent = 0;
 	uint8_t magLevelPercent = 0;
 

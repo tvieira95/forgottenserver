@@ -19,6 +19,7 @@
 #include "tile.h"
 #include "vocation.h"
 #include "familiar.h"
+#include "weapons.h"
 #include "kv/kv.h"
 
 extern Game g_game;
@@ -1808,6 +1809,20 @@ int luaPlayerSendStats(lua_State* L)
 	return 1;
 }
 
+int luaPlayerSendSkills(lua_State* L)
+{
+	// player:sendSkills()
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	player->sendSkills();
+	pushBoolean(L, true);
+	return 1;
+}
+
 int luaPlayerSendChannelMessage(lua_State* L)
 {
 	// player:sendChannelMessage(author, text, type, channelId)
@@ -1983,6 +1998,43 @@ int luaPlayerAddWheelSpellAugment(lua_State* L)
 
 	player->addWheelSpellAugment(getString(L, 2), static_cast<Augment_t>(getInteger<uint8_t>(L, 3)),
 	                             getNumber<double>(L, 4));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerResetWeaponProficiencyStats(lua_State* L)
+{
+	// player:resetWeaponProficiencyStats()
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	player->weaponProficiency().resetStats();
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerApplyWeaponProficiencyPerk(lua_State* L)
+{
+	// player:applyWeaponProficiencyPerk(perkType, value[, spellId, augmentType, skillId, element, range, bestiaryId])
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	uint8_t perkType = getInteger<uint8_t>(L, 2);
+	double value = getNumber<double>(L, 3);
+	uint16_t spellId = getInteger<uint16_t>(L, 4, 0);
+	uint8_t augmentType = getInteger<uint8_t>(L, 5, 0);
+	skills_t skillId = static_cast<skills_t>(getInteger<uint8_t>(L, 6, SKILL_FIST));
+	CombatType_t element = static_cast<CombatType_t>(getInteger<uint16_t>(L, 7, COMBAT_NONE));
+	uint8_t range = getInteger<uint8_t>(L, 8, 0);
+	uint16_t bestiaryId = getInteger<uint16_t>(L, 9, 0);
+
+	player->weaponProficiency().applyPerk(perkType, value, spellId, augmentType, skillId, element, range, bestiaryId);
 	pushBoolean(L, true);
 	return 1;
 }
@@ -2234,7 +2286,7 @@ int luaPlayerHasBlessing(lua_State* L)
 
 int luaPlayerAddBlessing(lua_State* L)
 {
-	// player:addBlessing(blessing)
+	// player:addBlessing(blessing[, count])
 	auto blessing = getBlessingId(L, 2);
 	Player* player = getUserdata<Player>(L, 1);
 	if (!player || !blessing) {
@@ -2242,19 +2294,15 @@ int luaPlayerAddBlessing(lua_State* L)
 		return 1;
 	}
 
-	if (player->hasBlessing(blessing.value())) {
-		pushBoolean(L, false);
-		return 1;
-	}
-
-	player->addBlessing(blessing.value());
+	uint8_t count = getInteger<uint8_t>(L, 3, 1);
+	player->addBlessing(blessing.value(), count);
 	pushBoolean(L, true);
 	return 1;
 }
 
 int luaPlayerRemoveBlessing(lua_State* L)
 {
-	// player:removeBlessing(blessing)
+	// player:removeBlessing(blessing[, count])
 	auto blessing = getBlessingId(L, 2);
 	Player* player = getUserdata<Player>(L, 1);
 	if (!player || !blessing) {
@@ -2262,13 +2310,35 @@ int luaPlayerRemoveBlessing(lua_State* L)
 		return 1;
 	}
 
-	if (!player->hasBlessing(blessing.value())) {
-		pushBoolean(L, false);
-		return 1;
-	}
-
-	player->removeBlessing(blessing.value());
+	uint8_t count = getInteger<uint8_t>(L, 3, 1);
+	player->removeBlessing(blessing.value(), count);
 	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerGetBlessingCount(lua_State* L)
+{
+	// player:getBlessingCount(blessing)
+	auto blessing = getBlessingId(L, 2);
+	const Player* player = getUserdata<const Player>(L, 1);
+	if (player && blessing) {
+		lua_pushinteger(L, player->getBlessingCount(blessing.value()));
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerSendBlessStatus(lua_State* L)
+{
+	// player:sendBlessStatus()
+	Player* player = getUserdata<Player>(L, 1);
+	if (player) {
+		player->sendBlessStatus();
+		pushBoolean(L, true);
+	} else {
+		lua_pushnil(L);
+	}
 	return 1;
 }
 
@@ -2738,6 +2808,46 @@ int luaPlayerSetAttackSpeed(lua_State* L)
 	} else {
 		lua_pushnil(L);
 	}
+	return 1;
+}
+
+int luaPlayerGetWeaponAttackValue(lua_State* L)
+{
+	// player:getWeaponAttackValue()
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	const Item* weapon = player->getWeapon(true);
+	if (!weapon) {
+		lua_pushinteger(L, 0);
+		return 1;
+	}
+
+	int32_t attack = weapon->getAttack();
+	const ItemType& it = Item::items[weapon->getID()];
+
+	if (it.weaponType == WEAPON_DISTANCE && it.ammoType != AMMO_NONE) {
+		const Item* ammo = player->getWeapon(false);
+		if (ammo && ammo != weapon) {
+			attack += ammo->getAttack();
+		}
+	}
+
+	if (attack <= 0 && it.maxHitChance > 0) {
+		attack = it.maxHitChance;
+	}
+
+	if (attack <= 0 && g_weapons) {
+		const WeaponWand* wand = dynamic_cast<const WeaponWand*>(g_weapons->getWeapon(weapon));
+		if (wand) {
+			attack = wand->getMaxChange();
+		}
+	}
+
+	lua_pushinteger(L, std::max<int32_t>(0, attack));
 	return 1;
 }
 
@@ -4160,6 +4270,7 @@ void LuaScriptInterface::registerPlayer()
 
 	registerMethod("Player", "sendTextMessage", luaPlayerSendTextMessage);
 	registerMethod("Player", "sendStats", luaPlayerSendStats);
+	registerMethod("Player", "sendSkills", luaPlayerSendSkills);
 	registerMethod("Player", "sendChannelMessage", luaPlayerSendChannelMessage);
 	registerMethod("Player", "sendPrivateMessage", luaPlayerSendPrivateMessage);
 	registerMethod("Player", "channelSay", luaPlayerChannelSay);
@@ -4172,6 +4283,8 @@ void LuaScriptInterface::registerPlayer()
 	registerMethod("Player", "addProficiencySpellAugment", luaPlayerAddProficiencySpellAugment);
 	registerMethod("Player", "clearWheelSpellAugments", luaPlayerClearWheelSpellAugments);
 	registerMethod("Player", "addWheelSpellAugment", luaPlayerAddWheelSpellAugment);
+	registerMethod("Player", "resetWeaponProficiencyStats", luaPlayerResetWeaponProficiencyStats);
+	registerMethod("Player", "applyWeaponProficiencyPerk", luaPlayerApplyWeaponProficiencyPerk);
 
 	registerMethod("Player", "getParty", luaPlayerGetParty);
 
@@ -4194,6 +4307,8 @@ void LuaScriptInterface::registerPlayer()
 	registerMethod("Player", "hasBlessing", luaPlayerHasBlessing);
 	registerMethod("Player", "addBlessing", luaPlayerAddBlessing);
 	registerMethod("Player", "removeBlessing", luaPlayerRemoveBlessing);
+	registerMethod("Player", "getBlessingCount", luaPlayerGetBlessingCount);
+	registerMethod("Player", "sendBlessStatus", luaPlayerSendBlessStatus);
 
 	registerMethod("Player", "canLearnSpell", luaPlayerCanLearnSpell);
 	registerMethod("Player", "learnSpell", luaPlayerLearnSpell);
@@ -4233,6 +4348,7 @@ void LuaScriptInterface::registerPlayer()
 	registerMethod("Player", "setFightingModes", luaPlayerSetFightMode);
 	registerMethod("Player", "stopWalk", luaPlayerStopWalk);
 
+	registerMethod("Player", "getWeaponAttackValue", luaPlayerGetWeaponAttackValue);
 	registerMethod("Player", "getAttackSpeed", luaPlayerGetAttackSpeed);
 	registerMethod("Player", "setAttackSpeed", luaPlayerSetAttackSpeed);
 

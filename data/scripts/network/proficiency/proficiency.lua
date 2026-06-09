@@ -85,6 +85,23 @@ end
 
 loadProficiencyDefinitions()
 
+-- Element mapping: Cipbia unshifted index -> TFS CombatType_t (bitmask)
+local CIPBIA_TO_COMBAT = {
+	[0]  = COMBAT_PHYSICALDAMAGE,
+	[1]  = COMBAT_FIREDAMAGE,
+	[2]  = COMBAT_EARTHDAMAGE,
+	[3]  = COMBAT_ENERGYDAMAGE,
+	[4]  = COMBAT_ICEDAMAGE,
+	[5]  = COMBAT_HOLYDAMAGE,
+	[6]  = COMBAT_DEATHDAMAGE,
+	[7]  = COMBAT_HEALING,
+	[8]  = COMBAT_DROWNDAMAGE,
+	[9]  = COMBAT_LIFEDRAIN,
+	[10] = COMBAT_MANADRAIN,
+	[11] = COMBAT_AGONYDAMAGE,
+	[18] = COMBAT_HEALING,
+}
+
 local function ensureTables()
 	if proficiencyTableReady then
 		return true
@@ -147,20 +164,21 @@ local function ensureCatalog()
 		if isValidWeaponId(serverId) then
 			local itemType = getItemType(serverId)
 			local clientId = itemType:getClientId()
-			if clientId and clientId > 0 and clientId <= 0xFFFF then
-				local entry = catalogByServerId[serverIdByClientId[clientId]]
-				if not entry then
-					entry = {
-						serverId = serverId,
-						clientId = clientId,
-						category = WEAPON_CATALOG[serverId],
-						name = itemType:getName(),
-					}
-					catalogEntries[#catalogEntries + 1] = entry
-					serverIdByClientId[clientId] = serverId
-				end
-				catalogByServerId[serverId] = entry
+			if not clientId or clientId == 0 or clientId > 0xFFFF then
+				clientId = serverId
 			end
+			local entry = catalogByServerId[serverIdByClientId[clientId]]
+			if not entry then
+				entry = {
+					serverId = serverId,
+					clientId = clientId,
+					category = WEAPON_CATALOG[serverId],
+					name = itemType:getName(),
+				}
+				catalogEntries[#catalogEntries + 1] = entry
+				serverIdByClientId[clientId] = serverId
+			end
+			catalogByServerId[serverId] = entry
 		end
 	end
 
@@ -365,41 +383,6 @@ local function getState(player, itemId)
 	return profile.weapons[itemId]
 end
 
-refreshProfileSpellAugments = function(player, profile)
-	if not player.clearProficiencySpellAugments or not player.addProficiencySpellAugment then
-		return
-	end
-
-	player:clearProficiencySpellAugments()
-	if not isAugmentSystemEnabled() then
-		return
-	end
-
-	profile = profile or playerCache[player:getGuid()]
-	if not profile then
-		return
-	end
-
-	for itemId, state in pairs(profile.weapons) do
-		local entry = getCatalogEntry(itemId)
-		local definition = entry and proficiencyDefinitionsById[entry.category]
-		if definition and type(definition.Levels) == "table" then
-			for level, position in pairs(state.perks) do
-				local levelData = definition.Levels[level + 1]
-				local perk = levelData and levelData.Perks and levelData.Perks[position + 1]
-				if perk and tonumber(perk.Type) == 5 then
-					local spellId = tonumber(perk.SpellId)
-					local augmentType = tonumber(perk.AugmentType)
-					local value = tonumber(perk.Value)
-					if spellId and augmentType and value then
-						player:addProficiencySpellAugment(itemId, spellId, augmentType, value)
-					end
-				end
-			end
-		end
-	end
-end
-
 local function getEquippedWeaponId(player)
 	if player.getWeaponProficiencyId then
 		local itemId = canonicalizeServerId(player:getWeaponProficiencyId())
@@ -416,6 +399,123 @@ local function getEquippedWeaponId(player)
 		end
 	end
 	return 0
+end
+
+refreshProfileSpellAugments = function(player, profile)
+	if not player.clearProficiencySpellAugments
+	   or not player.addProficiencySpellAugment
+	   or not player.resetWeaponProficiencyStats
+	   or not player.applyWeaponProficiencyPerk then
+		return
+	end
+
+	player:clearProficiencySpellAugments()
+	player:resetWeaponProficiencyStats()
+
+	if not isAugmentSystemEnabled() then
+		return
+	end
+
+	profile = profile or playerCache[player:getGuid()]
+	if not profile then
+		return
+	end
+
+	-- Cipbia skill ID -> TFS skills_t (non-linear mapping from Canary's CipbiaSkills_t)
+	local CIPBIA_SKILL_TO_TFS = {
+		[1]  = SKILL_MAGLEVEL,
+		[6]  = SKILL_SHIELD,
+		[7]  = SKILL_DISTANCE,
+		[8]  = SKILL_SWORD,
+		[9]  = SKILL_CLUB,
+		[10] = SKILL_AXE,
+		[11] = SKILL_FIST,
+		[13] = SKILL_FISHING,
+	}
+
+	-- Market category -> Proficiency ID (matches client getProficiencyIdFromCategory)
+	local MARKET_CATEGORY_TO_PROFICIENCY = {
+		[17] = 8,  -- Axes → Sanguine 1H Axe
+		[18] = 9,  -- Clubs → Sanguine 1H Club
+		[19] = 13, -- Distance → Sanguine 2H Bow
+		[20] = 6,  -- Swords → Sanguine 1H Sword
+		[21] = 15, -- Wands/Rods → Sanguine 1H Wand
+		[27] = 14, -- Fist → Sanguine 2H Fist
+	}
+
+	local function categoryToProficiencyId(category)
+		return MARKET_CATEGORY_TO_PROFICIENCY[category] or category
+	end
+
+	local function cipbiaSkillToTfs(cipbiaSkill)
+		if not cipbiaSkill then return SKILL_FIST end
+		return CIPBIA_SKILL_TO_TFS[cipbiaSkill] or SKILL_FIST
+	end
+
+	local function getElementFromJson(perk)
+		local shifted = tonumber(perk.ElementId) or tonumber(perk.DamageType)
+		if not shifted or shifted == 0 then
+			return COMBAT_NONE
+		end
+		-- undoShift: trailingZeros - 2
+		local unshifted = 0
+		local n = shifted
+		while n > 0 and (n % 2) == 0 do
+			unshifted = unshifted + 1
+			n = n / 2
+		end
+		unshifted = unshifted - 2
+		if unshifted < 0 then
+			return COMBAT_NONE
+		end
+		return CIPBIA_TO_COMBAT[unshifted] or COMBAT_NONE
+	end
+
+	local equippedId = getEquippedWeaponId(player)
+
+	local perkCount = 0
+	for itemId, state in pairs(profile.weapons) do
+		local entry = getCatalogEntry(itemId)
+		local proficiencyId = categoryToProficiencyId(entry and entry.category)
+		local definition = proficiencyDefinitionsById[proficiencyId]
+		if definition and type(definition.Levels) == "table" then
+			local isEquipped = (itemId == equippedId)
+			for level, position in pairs(state.perks) do
+				local levelData = definition.Levels[level + 1]
+				local perk = levelData and levelData.Perks and levelData.Perks[position + 1]
+				if perk then
+					local perkType = tonumber(perk.Type)
+					local value = tonumber(perk.Value)
+					local rawSkillId = tonumber(perk.SkillId)
+					if perkType and value then
+						if perkType == 5 then
+							-- Type 5 (Spell Augment): always register for lookup
+							local spellId = tonumber(perk.SpellId)
+							local augmentType = tonumber(perk.AugmentType)
+							if spellId and augmentType then
+								player:addProficiencySpellAugment(itemId, spellId, augmentType, value)
+							end
+						elseif isEquipped then
+							local spellId = tonumber(perk.SpellId) or 0
+							local augmentType = tonumber(perk.AugmentType) or 0
+							local skillId = cipbiaSkillToTfs(rawSkillId)
+							local element = getElementFromJson(perk)
+							local range = tonumber(perk.Range) or 0
+							local bestiaryId = tonumber(perk.BestiaryId) or 0
+							player:applyWeaponProficiencyPerk(perkType, value, spellId, augmentType, skillId, element, range, bestiaryId)
+						end
+					end
+				end
+			end
+		end
+	end
+
+	if player.sendSkills then
+		player:sendSkills()
+	end
+	if player.wheelSendSkillStats then
+		player:wheelSendSkillStats()
+	end
 end
 
 local function writeInfoPayload(out, entry, state)
@@ -602,6 +702,14 @@ function System.addExperience(player, source, experience, itemId, applyMultiplie
 	return true
 end
 
+function System.sendEquippedExperience(player)
+	local itemId = getEquippedWeaponId(player)
+	if itemId and itemId ~= 0 then
+		sendExperience(player, itemId)
+		sendInfo(player, itemId)
+	end
+end
+
 function System.clearPlayerCache(player)
 	if player then
 		local guid = player:getGuid()
@@ -659,6 +767,11 @@ local loginEvent = CreatureEvent("WeaponProficiencyLogin")
 
 function loginEvent.onLogin(player)
 	loadProfile(player)
+	local itemId = getEquippedWeaponId(player)
+	if itemId and itemId ~= 0 then
+		sendExperience(player, itemId)
+		sendInfo(player, itemId)
+	end
 	return true
 end
 

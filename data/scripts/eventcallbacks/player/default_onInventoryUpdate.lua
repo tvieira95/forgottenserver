@@ -20,6 +20,15 @@ function ec.onUpdateInventory(player, item, slot, equip)
     if player.wheelSendSkillStats then
         player:wheelSendSkillStats()
     end
+    if equip and (slot == CONST_SLOT_LEFT or slot == CONST_SLOT_RIGHT) then
+        local playerId = player:getId()
+        addEvent(function()
+            local freshPlayer = Player(playerId)
+            if freshPlayer and WeaponProficiencySystem and WeaponProficiencySystem.sendEquippedExperience then
+                WeaponProficiencySystem.sendEquippedExperience(freshPlayer)
+            end
+        end, 100)
+    end
     return true
 end
 ec:register()
