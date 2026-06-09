@@ -1178,17 +1178,7 @@ public:
 		}
 	}
 	void sendClosePrivate(uint16_t channelId);
-	void sendIcons() const
-	{
-		if (!client) {
-			return;
-		}
-		if (client->supportsAstraCreatureIcons()) {
-			client->sendIcons(getClientIcons64(), getBakragoreIcon());
-		} else {
-			client->sendIcons(getClientIcons());
-		}
-	}
+	void sendIcons() const;
 	void sendMagicEffect(const Position& pos, uint16_t type) const
 	{
 		if (client) {

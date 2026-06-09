@@ -1185,6 +1185,16 @@ IconBakragore_t Player::getBakragoreIcon() const
 	return IconBakragore_None;
 }
 
+void Player::sendIcons() const
+{
+	if (!client) {
+		return;
+	}
+	client->sendIcons(getClientIcons());
+	// Additional 64-bit icons for AstraClient (method has internal isAstraClient guard)
+	client->sendIcons(getClientIcons64(), getBakragoreIcon());
+}
+
 void Player::updateInventoryWeight()
 {
 	inventoryWeight = 0;
