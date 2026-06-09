@@ -1,5 +1,8 @@
 if not configManager.getBoolean(configKeys.BESTIARY_SYSTEM_ENABLED) then
 	CustomBestiary = nil
+	function Game.getMonstersByBestiaryStars(_stars)
+		return {}
+	end
 	return
 end
 
@@ -314,4 +317,23 @@ function CustomBestiary.getLootTier(chance)
 		return 1
 	end
 	return 0
+end
+
+function CustomBestiary.getMonstersByStars(starFilter)
+	local result = {}
+	starFilter = tonumber(starFilter) or 0
+	for _, entry in pairs(CustomBestiary.monstersByRaceId or {}) do
+		if entry.stars == starFilter then
+			result[#result + 1] = entry
+		end
+	end
+	table.sort(result, function(a, b) return (a.name or ""):lower() < (b.name or ""):lower() end)
+	return result
+end
+
+function Game.getMonstersByBestiaryStars(stars)
+	if not CustomBestiary then
+		return {}
+	end
+	return CustomBestiary.getMonstersByStars(stars)
 end
