@@ -10,6 +10,7 @@
 #include "creatureevent.h"
 #include "game.h"
 #include "iologindata.h"
+#include "save_manager.h"
 #include "instance_utils.h"
 #include "monster.h"
 #include "outputmessage.h"
@@ -373,6 +374,8 @@ void ProtocolGame::login(uint32_t characterId, uint32_t accountId, OperatingSyst
 
 		const auto loginPlayer = player;
 		g_threadPool.detach_task([self = getThis(), loginPlayer, reservedGuid, accountId, operatingSystem]() {
+			g_saveManager.drainPlayerFlush(reservedGuid);	// Drain any pending save flush before loading player data from DB.
+
 			const bool loaded = IOLoginData::loadPlayerById(loginPlayer.get(), reservedGuid, true);
 			g_dispatcher.addTask([self, reservedGuid, accountId, loaded, operatingSystem]() {
 				self->finishLogin(reservedGuid, accountId, loaded, operatingSystem);

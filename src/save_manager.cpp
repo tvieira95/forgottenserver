@@ -181,6 +181,27 @@ bool SaveManager::savePlayerSync(Player* player)
 	return success;
 }
 
+bool SaveManager::drainPlayerFlush(uint32_t guid)
+{
+	auto promise = std::make_shared<std::promise<void>>();
+	auto future = promise->get_future();
+
+	g_dispatcher.addTask([this, guid, promise]() {
+		if (flushInFlight.contains(guid) || pendingFlushes.contains(guid)) {
+			flushChainWaiters[guid].push_back(std::move(promise));
+		} else {
+			promise->set_value();
+		}
+	});
+
+	// Wait up to 10s for the flush to complete (generous upper bound.
+	if (future.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
+		LOG_ERROR(fmt::format("[SaveManager] drainPlayerFlush timeout for guid={} - flush may not have completed", guid));
+		return false;
+	}
+	return true;
+}
+
 bool SaveManager::schedulePlayerFlush(Player* player, bool trackSaveAll /* = false */)
 {
 	if (!player) {
@@ -234,6 +255,16 @@ void SaveManager::onPlayerFlushed(uint32_t guid, bool trackedBySaveAll, bool suc
 	auto it = pendingFlushes.find(guid);
 	if (it == pendingFlushes.end()) {
 		flushInFlight.erase(guid);
+
+		// Wake up any thread waiting for this flush chain to complete
+		auto waiterIt = flushChainWaiters.find(guid);
+		if (waiterIt != flushChainWaiters.end()) {
+			for (auto& w : waiterIt->second) {
+				w->set_value();
+			}
+			flushChainWaiters.erase(waiterIt);
+		}
+
 		return;
 	}
 

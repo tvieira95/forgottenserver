@@ -6,9 +6,12 @@
 #define FS_SAVE_MANAGER_H
 
 #include <atomic>
+#include <future>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "iologindata.h"
 
@@ -23,6 +26,15 @@ public:
 	bool savePlayer(Player* player);
 	void saveMapAsync();
 	bool savePlayerSync(Player* player);
+
+	/**
+	 * @brief Thread-safe: blocks until all pending save operations for the given
+	 * GUID have been fully persisted to the database.
+	 *
+	 * Called from the login flow (thread pool worker) before loadPlayerById
+	 * to prevent reading stale data when a logout/async-save race occurred.
+	 */
+	bool drainPlayerFlush(uint32_t guid);
 
 	[[nodiscard]] bool isSaving() const noexcept
 	{
@@ -54,6 +66,8 @@ private:
 	std::atomic<int64_t> lastSaveTimestamp{0};
 	std::unordered_set<uint32_t> flushInFlight;
 	std::unordered_map<uint32_t, PendingPlayerFlush> pendingFlushes;
+
+	std::unordered_map<uint32_t, std::vector<std::shared_ptr<std::promise<void>>>> flushChainWaiters;
 
 	static constexpr int64_t MIN_SAVE_INTERVAL_MS = 2000;
 };
