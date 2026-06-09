@@ -374,21 +374,44 @@ void ProtocolGame::login(uint32_t characterId, uint32_t accountId, OperatingSyst
 
 		const auto loginPlayer = player;
 		g_threadPool.detach_task([self = getThis(), loginPlayer, reservedGuid, accountId, operatingSystem]() {
-			// Drain any pending save flush before loading player data from DB.
-			if (!g_saveManager.drainPlayerFlush(reservedGuid)) {
+			// Shared atomic: guards mutual exclusion between timeout and callback
+			auto completed = std::make_shared<std::atomic<bool>>(false);
+
+			const uint32_t timeoutEventId = g_scheduler.addEvent(10000, [self, reservedGuid, completed]() {
+				if (completed->exchange(true)) {
+					return; // callback already handled
+				}
 				g_dispatcher.addTask([self, reservedGuid]() {
 					g_game.releaseLogin(reservedGuid);
 					if (self->player) {
-						self->disconnectClient(
-							"Character data is still being saved. Please try again in a few seconds.");
+						self->disconnectClient("Login timed out waiting for save to complete.");
 					}
 				});
-				return;
-			}
+			});
 
-			const bool loaded = IOLoginData::loadPlayerById(loginPlayer.get(), reservedGuid, true);
-			g_dispatcher.addTask([self, reservedGuid, accountId, loaded, operatingSystem]() {
-				self->finishLogin(reservedGuid, accountId, loaded, operatingSystem);
+			g_saveManager.drainPlayerFlushAsync(reservedGuid,
+				[self, reservedGuid, accountId, loginPlayer, operatingSystem, timeoutEventId, completed](bool drained) {
+				g_scheduler.stopEvent(timeoutEventId);
+				if (completed->exchange(true)) {
+					// Timeout already handled this login
+					return;
+				}
+
+				if (!drained) {
+					g_dispatcher.addTask([self, reservedGuid]() {
+						g_game.releaseLogin(reservedGuid);
+						if (self->player) {
+							self->disconnectClient(
+								"Character data is still being saved. Please try again in a few seconds.");
+						}
+					});
+					return;
+				}
+
+				const bool loaded = IOLoginData::loadPlayerById(loginPlayer.get(), reservedGuid, true);
+				g_dispatcher.addTask([self, reservedGuid, accountId, loaded, operatingSystem]() {
+					self->finishLogin(reservedGuid, accountId, loaded, operatingSystem);
+				});
 			});
 		});
 		return;

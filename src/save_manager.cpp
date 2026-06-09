@@ -6,6 +6,7 @@
 
 #include "save_manager.h"
 
+#include "database.h"
 #include "game.h"
 #include "iomapserialize.h"
 #include "logger.h"
@@ -181,25 +182,18 @@ bool SaveManager::savePlayerSync(Player* player)
 	return success;
 }
 
-bool SaveManager::drainPlayerFlush(uint32_t guid)
+void SaveManager::drainPlayerFlushAsync(uint32_t guid, std::function<void(bool)> callback)
 {
-	auto promise = std::make_shared<std::promise<void>>();
-	auto future = promise->get_future();
-
-	g_dispatcher.addTask([this, guid, promise]() {
+	g_dispatcher.addTask([this, guid, callback = std::move(callback)]() mutable {
 		if (flushInFlight.contains(guid) || pendingFlushes.contains(guid)) {
-			flushChainWaiters[guid].push_back(std::move(promise));
+			flushChainCallbacks[guid].push_back(std::move(callback));
 		} else {
-			promise->set_value();
+			// No flush pending, proceed immediately on thread pool
+			g_threadPool.detach_task([callback = std::move(callback)]() mutable {
+				callback(true);
+			});
 		}
 	});
-
-	// Wait up to 10s for the flush to complete (generous upper bound.
-	if (future.wait_for(std::chrono::seconds(10)) == std::future_status::timeout) {
-		LOG_ERROR(fmt::format("[SaveManager] drainPlayerFlush timeout for guid={} - flush may not have completed", guid));
-		return false;
-	}
-	return true;
 }
 
 bool SaveManager::schedulePlayerFlush(Player* player, bool trackSaveAll /* = false */)
@@ -252,17 +246,27 @@ void SaveManager::onPlayerFlushed(uint32_t guid, bool trackedBySaveAll, bool suc
 		completeTrackedFlush();
 	}
 
+	// Remove from WAL now that flush succeeded (or log failure but still clear)
+	if (success) {
+		deletePendingFlushFromDB(guid);
+	} else {
+		// Flush failed; keep WAL entry for potential recovery
+		LOG_ERROR(fmt::format("[SaveManager] Flush failed for guid={}, WAL entry preserved for recovery", guid));
+	}
+
 	auto it = pendingFlushes.find(guid);
 	if (it == pendingFlushes.end()) {
 		flushInFlight.erase(guid);
 
-		// Wake up any thread waiting for this flush chain to complete
-		auto waiterIt = flushChainWaiters.find(guid);
-		if (waiterIt != flushChainWaiters.end()) {
-			for (auto& w : waiterIt->second) {
-				w->set_value();
+		// Invoke all registered callbacks for this flush chain
+		auto cbIt = flushChainCallbacks.find(guid);
+		if (cbIt != flushChainCallbacks.end()) {
+			for (auto& cb : cbIt->second) {
+				g_threadPool.detach_task([cb = std::move(cb), success]() mutable {
+					cb(success);
+				});
 			}
-			flushChainWaiters.erase(waiterIt);
+			flushChainCallbacks.erase(cbIt);
 		}
 
 		return;
@@ -275,6 +279,9 @@ void SaveManager::onPlayerFlushed(uint32_t guid, bool trackedBySaveAll, bool suc
 
 void SaveManager::dispatchPlayerFlush(uint32_t guid, PendingPlayerFlush pending)
 {
+	// Persist to WAL before dispatch so crash recovery can replay
+	savePendingFlushToDB(guid, pending.save);
+
 	g_threadPool.detach_task([this, guid, pending = std::move(pending)]() mutable {
 		std::string name = std::move(pending.name);
 		IOLoginData::PlayerSaveSnapshot save = std::move(pending.save);
@@ -320,6 +327,71 @@ void SaveManager::completeTrackedFlush() noexcept
 	}
 
 	saving.store(false, std::memory_order_release);
+}
+
+void SaveManager::savePendingFlushToDB(uint32_t guid, const IOLoginData::PlayerSaveSnapshot& save)
+{
+	Database& db = Database::getInstance();
+	for (size_t i = 0; i < save.queries.size(); ++i) {
+		const std::string escaped = db.escapeString(save.queries[i]);
+		db.executeQuery(fmt::format(
+			"INSERT INTO `player_save_async_pending` (`guid`, `query_index`, `query_text`, `created_at`) "
+			"VALUES ({}, {}, {}, UNIX_TIMESTAMP())",
+			guid, i, escaped));
+	}
+}
+
+void SaveManager::deletePendingFlushFromDB(uint32_t guid)
+{
+	Database::getInstance().executeQuery(
+		fmt::format("DELETE FROM `player_save_async_pending` WHERE `guid` = {}", guid));
+}
+
+void SaveManager::recoverPendingFlushes()
+{
+	Database& db = Database::getInstance();
+	DBResult_ptr result = db.storeQuery(
+		"SELECT `guid`, `query_index`, `query_text` FROM `player_save_async_pending` ORDER BY `guid`, `query_index`");
+	if (!result) {
+		LOG_INFO(">> [SaveManager] No pending async saves to recover.");
+		return;
+	}
+
+	std::unordered_map<uint32_t, std::vector<std::string>> pendingByGuid;
+	do {
+		const uint32_t guid = result->getNumber<uint32_t>("guid");
+		const std::string query{result->getString("query_text")};
+		pendingByGuid[guid].push_back(std::move(query));
+	} while (result->next());
+
+	for (auto& [guid, queries] : pendingByGuid) {
+		LOG_INFO(fmt::format(">> [SaveManager] Recovering {} pending query(es) for guid={}", queries.size(), guid));
+		bool allOk = true;
+		DBTransaction transaction;
+		if (!transaction.begin()) {
+			LOG_ERROR(fmt::format("[SaveManager] Failed to begin recovery transaction for guid={}", guid));
+			continue;
+		}
+		for (const auto& q : queries) {
+			if (!db.executeQuery(q)) {
+				allOk = false;
+				LOG_ERROR(fmt::format("[SaveManager] Recovery query failed for guid={}: {}", guid, q));
+				break;
+			}
+		}
+		if (allOk) {
+			if (transaction.commit()) {
+				db.executeQuery(fmt::format("DELETE FROM `player_save_async_pending` WHERE `guid` = {}", guid));
+				LOG_INFO(fmt::format(">> [SaveManager] Successfully recovered save for guid={}", guid));
+			} else {
+				transaction.rollback();
+				LOG_ERROR(fmt::format("[SaveManager] Recovery commit failed for guid={}", guid));
+			}
+		} else {
+			transaction.rollback();
+			LOG_ERROR(fmt::format("[SaveManager] Recovery failed for guid={}, manual intervention required", guid));
+		}
+	}
 }
 
 void SaveManager::saveMapAsync()

@@ -6,7 +6,7 @@
 #define FS_SAVE_MANAGER_H
 
 #include <atomic>
-#include <future>
+#include <functional>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -28,13 +28,20 @@ public:
 	bool savePlayerSync(Player* player);
 
 	/**
-	 * @brief Thread-safe: blocks until all pending save operations for the given
-	 * GUID have been fully persisted to the database.
+	 * @brief Non-blocking: invokes callback(bool) when pending save operations for
+	 * the given GUID have been fully persisted to the database (or on timeout).
 	 *
-	 * Called from the login flow (thread pool worker) before loadPlayerById
-	 * to prevent reading stale data when a logout/async-save race occurred.
+	 * Called from the login flow (thread pool worker) before loadPlayerById.
+	 * The callback runs on a thread pool worker and MUST NOT be long-running
+	 * from the dispatcher's perspective. Never blocks a pool worker.
 	 */
-	bool drainPlayerFlush(uint32_t guid);
+	void drainPlayerFlushAsync(uint32_t guid, std::function<void(bool)> callback);
+
+	/**
+	 * @brief Replay any pending async saves that were lost due to a server crash.
+	 * Must be called once during server startup after database is connected.
+	 */
+	void recoverPendingFlushes();
 
 	[[nodiscard]] bool isSaving() const noexcept
 	{
@@ -51,6 +58,8 @@ private:
 		bool trackedBySaveAll = false;
 	};
 
+	using FlushCallback = std::function<void(bool)>;
+
 	// Player state snapshots and flush queue bookkeeping must run on the dispatcher thread.
 	bool schedulePlayerFlush(Player* player, bool trackSaveAll = false);
 	void onPlayerFlushed(uint32_t guid, bool trackedBySaveAll, bool success, IOLoginData::PlayerSaveSnapshot save);
@@ -58,6 +67,10 @@ private:
 	void beginTrackedFlush() noexcept;
 	void completeTrackedFlush() noexcept;
 	void dispatchPlayerFlush(uint32_t guid, PendingPlayerFlush pending);
+
+	// WAL helpers for crash-safe async saves
+	void savePendingFlushToDB(uint32_t guid, const IOLoginData::PlayerSaveSnapshot& save);
+	void deletePendingFlushFromDB(uint32_t guid);
 
 	std::atomic<bool> saving{false};
 	std::atomic<uint32_t> pendingSaveFlushes{0};
@@ -67,7 +80,8 @@ private:
 	std::unordered_set<uint32_t> flushInFlight;
 	std::unordered_map<uint32_t, PendingPlayerFlush> pendingFlushes;
 
-	std::unordered_map<uint32_t, std::vector<std::shared_ptr<std::promise<void>>>> flushChainWaiters;
+	// Non-blocking callback registry for login barrier
+	std::unordered_map<uint32_t, std::vector<FlushCallback>> flushChainCallbacks;
 
 	static constexpr int64_t MIN_SAVE_INTERVAL_MS = 2000;
 };
