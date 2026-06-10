@@ -270,7 +270,9 @@ local function runPhase1(player)
     for i = 1, CFG.save_burst do
         addEvent(function(pid2, guid2)
             local p = safePlayer(pid2, guid2)
-            if p then p:saveAsync() end
+            if p and not p:saveAsync() then
+                logInfo(p, "Phase 1: saveAsync() retornou false (flush em andamento) - normal em flood.")
+            end
         end, i * CFG.stagger_ms, pid, guid)
     end
 
@@ -345,12 +347,22 @@ local function runPhase2(player)
 
     -- 2. Save S1: snapshot COM item → enfileirado no worker (async para race real)
     local s1 = player:saveAsync()
+    if not s1 then
+        logFail(player, "Phase 2: saveAsync() S1 retornou false - flush nao enfileirado. Teste pode ser inconclusivo.")
+        safeRemoveAll(player, typeId)
+        return false
+    end
 
     -- 3. Remove da MEMORIA sem salvar
     player:removeItem(typeId, 1)
 
     -- 4. Save S2: snapshot SEM item (deve ser o estado final) (async, vai p/ pendingFlushes)
     local s2 = player:saveAsync()
+    if not s2 then
+        logFail(player, "Phase 2: saveAsync() S2 retornou false - flush nao enfileirado. Teste pode ser inconclusivo.")
+        safeRemoveAll(player, typeId)
+        return false
+    end
 
     logInfo(player, string.format(
         "Phase 2: S1=%s S2=%s | Dois saves enfileirados. Verificando DB com retry...",
@@ -579,7 +591,9 @@ local function runPhase5(player)
     for i = 1, bursts do
         addEvent(function(pid2, guid2)
             local p = safePlayer(pid2, guid2)
-            if p then p:saveAsync() end
+            if p and not p:saveAsync() then
+                logInfo(p, "Phase 5: saveAsync() retornou false (fila cheia) - esperado em saturacao.")
+            end
         end, 0, pid, guid)
     end
 
@@ -648,7 +662,12 @@ local function runPhase6(player)
     end
 
     -- S1: { A=1, B=0 } (async — enfileirado no worker)
-    player:saveAsync()
+    local ok1 = player:saveAsync()
+    if not ok1 then
+        logFail(player, "Phase 6: saveAsync() S1 retornou false - teste abortado.")
+        safeRemoveAll(player, typeA)
+        return false
+    end
 
     -- Troca: remove A, adiciona B (sem save intermediario)
     player:removeItem(typeA, 1)
@@ -661,7 +680,10 @@ local function runPhase6(player)
     end
 
     -- S2: { A=0, B=1 } (async — pendingFlushes atras de S1)
-    player:saveAsync()
+    local ok2 = player:saveAsync()
+    if not ok2 then
+        logFail(player, "Phase 6: saveAsync() S2 retornou false - teste pode ser inconclusivo.")
+    end
 
     logInfo(player, string.format(
         "Phase 6: S1={A} e S2={B} enfileirados. S2 deve ganhar. Verificando em %dms...",
@@ -740,7 +762,12 @@ local function runPhase7(player)
     end
 
     -- Save com 3 itens (async)
-    player:saveAsync()
+    local ok1 = player:saveAsync()
+    if not ok1 then
+        logFail(player, "Phase 7: saveAsync() S1 retornou false - flush nao enfileirado.")
+        safeRemoveAll(player, typeId)
+        return false
+    end
 
     -- Remove total-1 itens
     for i = 1, total - 1 do
@@ -748,7 +775,10 @@ local function runPhase7(player)
     end
 
     -- Save com 1 item (async, pendingFlushes)
-    player:saveAsync()
+    local ok2 = player:saveAsync()
+    if not ok2 then
+        logFail(player, "Phase 7: saveAsync() S2 retornou false - teste pode ser inconclusivo.")
+    end
 
     addEvent(function(pid2, guid2, tId, expected)
         local p = safePlayer(pid2, guid2)
@@ -823,7 +853,9 @@ local function runPhase8(player)
     for i = 1, burstA do
         addEvent(function(pid2, guid2)
             local p = safePlayer(pid2, guid2)
-            if p then p:saveAsync() end
+            if p and not p:saveAsync() then
+                logInfo(p, "Phase 8: saveAsync() flood A retornou false - esperado em saturacao.")
+            end
         end, i * CFG.stagger_ms, pid, guid)
     end
 
@@ -839,7 +871,9 @@ local function runPhase8(player)
     for i = 1, burstB do
         addEvent(function(pid2, guid2)
             local p = safePlayer(pid2, guid2)
-            if p then p:saveAsync() end
+            if p and not p:saveAsync() then
+                logInfo(p, "Phase 8: saveAsync() flood B retornou false - esperado em saturacao.")
+            end
         end, removeAt + 20 + i * CFG.stagger_ms, pid, guid)
     end
 
@@ -847,7 +881,9 @@ local function runPhase8(player)
     local finalAt = removeAt + 20 + burstB * CFG.stagger_ms + 80
     addEvent(function(pid2, guid2)
         local p = safePlayer(pid2, guid2)
-        if p then p:saveAsync() end
+        if p and not p:saveAsync() then
+            logInfo(p, "Phase 8: saveAsync() final retornou false.")
+        end
     end, finalAt, pid, guid)
 
     -- Verifica
@@ -884,6 +920,117 @@ local function runPhase8(player)
 end
 
 -- ============================================================================
+-- PHASE 9  –  Login Barrier Test (drainPlayerFlushAsync)
+-- ============================================================================
+--[[
+  Testa a barreira de login (PR#78 commits 06-09) diretamente via
+  player:drainAsyncSave(callback).
+
+  Cenario simulado:
+    1. addItem → saveAsync(S0)  → snapshot COM item, enfileirado no worker
+    2. removeItem → saveAsync(S1) → snapshot SEM item (pendingFlushes se S0 em voo)
+    3. drainAsyncSave() → espera flush chain completar (S0 → S1)
+    4. callback verifica DB=0
+
+  Diferenca da Phase 2:
+    Phase 2 usa verifyWithRetry (polling) para verificar o DB.
+    Phase 9 usa a barreira de login REAL (drainPlayerFlushAsync) que e o
+    mecanismo usado no login do protocolgame.cpp. Se o callback nunca disparar,
+    a fase falha por timeout (10s).
+
+  FALHA AQUI = a barreira de login nao esta funcionando corretamente.
+--]]
+local function runPhase9(player)
+    local guid   = player:getGuid()
+    local pid    = player:getId()
+    local typeId = CFG.item_ns
+
+    logHeader(player, "Phase 9: Login Barrier Test - drainAsyncSave + callback verification")
+
+    safeRemoveAll(player, typeId)
+
+    if not player:addItem(typeId, 1, false) then
+        logFail(player, "Phase 9: Falha ao criar item. Ajuste CFG.item_ns.")
+        return false
+    end
+
+    -- S0: snapshot COM item (async)
+    local ok0 = player:saveAsync()
+    if not ok0 then
+        logFail(player, "Phase 9: saveAsync() S0 retornou false.")
+        safeRemoveAll(player, typeId)
+        return false
+    end
+
+    -- Remove item (simula player dropando item entre autosave e logout)
+    player:removeItem(typeId, 1)
+
+    -- S1: snapshot SEM item (async — pendingFlushes se S0 ainda em voo)
+    local ok1 = player:saveAsync()
+    if not ok1 then
+        logInfo(player, "Phase 9: saveAsync() S1 retornou false (flush em andamento) - normal.")
+    end
+
+    log(player, "Phase 9: S0 e S1 enfileirados. Chamando drainAsyncSave()...")
+
+    -- Timeout de seguranca: se callback nunca disparar, falha apos 12s
+    local timedOut = false
+    local timeoutEvent = addEvent(function(pid2, guid2)
+        local p = safePlayer(pid2, guid2)
+        if p then
+            logFail(p, "Phase 9: TIMEOUT - drainAsyncSave callback nao disparou em 12s.")
+            logFail(p, "  -> A barreira de login pode estar com problema no flushChainCallbacks.")
+            safeRemoveAll(p, typeId)
+            p:save()
+        end
+        timedOut = true
+    end, 12000, pid, guid)
+
+    -- Usa a barreira de login real
+    player:drainAsyncSave(function(drained)
+        if timedOut then
+            -- Timeout ja tratou, ignorar callback tardio
+            return
+        end
+        g_scheduler.stopEvent(timeoutEvent)
+
+        local p = safePlayer(pid, guid)
+        if not p then
+            logFail(nil, "Phase 9: Player desconectou durante drainAsyncSave.")
+            return
+        end
+
+        if not drained then
+            logFail(p, "Phase 9: drainAsyncSave retornou false - flush chain falhou ou timeout interno.")
+            safeRemoveAll(p, typeId)
+            p:save()
+            return
+        end
+
+        -- Barreira completou: verifica DB
+        local cnt = countItemsInDB(guid, typeId)
+        if cnt == 0 then
+            logPass(p, string.format(
+                "Phase 9: DB=0 apos drainAsyncSave. Barreira de login funcional! " ..
+                "(S0 c/item -> S1 s/item -> drain -> DB=0)"
+            ))
+        elseif cnt > 0 then
+            logFail(p, string.format(
+                "Phase 9: DB=%d (esperado 0) - ## BARREIRA DE LOGIN FALHOU ##", cnt
+            ))
+            logFail(p, "  -> drainAsyncSave retornou true mas DB ainda contem o item.")
+            logFail(p, "  -> Possivel: S1 nao foi executado, ou flush chain ignorou pendingFlushes.")
+            safeRemoveAll(p, typeId)
+            p:save()
+        else
+            logFail(p, "Phase 9: Falha na query DB.")
+        end
+    end)
+
+    return true
+end
+
+-- ============================================================================
 -- TALKACTION
 -- ============================================================================
 local dupeAction = TalkAction("/dupe")
@@ -900,7 +1047,7 @@ function dupeAction.onSay(player, words, param)
     -- ── INFO ──────────────────────────────────────────────────────────────────
     if cmd == "info" then
         local lines = {
-            "=== DupeTest | 8 fases | item duplication vulnerability scanner ===",
+            "=== DupeTest | 9 fases | item duplication vulnerability scanner ===",
             "Ph1  Ghost item: flood saves -> remove -> verifica DB=0",
             "Ph2  * SNAPSHOT RACE: add->save(S1)->remove->save(S2) | S2 deve ganhar",
             "Ph3  Stackable count: add 200->save->remove 100->save->verifica SUM=100",
@@ -909,7 +1056,8 @@ function dupeAction.onSay(player, words, param)
             "Ph6  Reversal: [A]->save->swap por B->save | somente B no DB",
             "Ph7  Multi-item: add 3->remove 2->save | DB deve ter 1",
             "Ph8  Simulacao completa: flood c/item + remocao + flood s/item",
-            "Uso: /dupe [start|1-8|info|clean]",
+            "Ph9  * BARRREIRA DE LOGIN: drainAsyncSave + callback | testa PR#78",
+            "Uso: /dupe [start|1-9|info|clean]",
             string.format("CFG: item_ns=%d item_st=%d verify_delay=%dms",
                 CFG.item_ns, CFG.item_st, CFG.verify_delay),
         }
@@ -935,6 +1083,7 @@ function dupeAction.onSay(player, words, param)
     local phaseMap = {
         [1] = runPhase1, [2] = runPhase2, [3] = runPhase3, [4] = runPhase4,
         [5] = runPhase5, [6] = runPhase6, [7] = runPhase7, [8] = runPhase8,
+        [9] = runPhase9,
     }
 
     -- ── FASE INDIVIDUAL ───────────────────────────────────────────────────────
@@ -963,13 +1112,14 @@ function dupeAction.onSay(player, words, param)
                     CFG.save_burst * CFG.stagger_ms + 100 + CFG.verify_delay + 500,
                     CFG.verify_delay + 800 * 3 + 500,
                     2 * CFG.verify_delay + 800,
-                    5 * 300 + CFG.verify_delay + 500
+                    5 * 300 + CFG.verify_delay + 500,
+                    14000                              -- Ph9: timeout 12s + buffer
                 ) + 500
                 local guid = player:getGuid()
                 addEvent(function(g) activeRuns[g] = false end, maxDuration, guid)
             end
         else
-            player:sendTextMessage(MSG_BLUE, "Fase invalida. Use 1-8, start, info ou clean.")
+            player:sendTextMessage(MSG_BLUE, "Fase invalida. Use 1-9, start, info ou clean.")
         end
         return false
     end
@@ -995,22 +1145,23 @@ function dupeAction.onSay(player, words, param)
         -- Usamos uma janela conservadora que cobre o pior caso (Ph3/Ph4).
         local phaseDuration = math.max(
             5 * 300 + CFG.verify_delay + 500,        -- Ph4: rounds*roundMs + verify + buf
-            2 * CFG.verify_delay + 800               -- Ph3: 2x addEvent aninhado
+            2 * CFG.verify_delay + 800,              -- Ph3: 2x addEvent aninhado
+            12000 + 2000                             -- Ph9: timeout 12s + buffer
         ) + 500  -- buffer extra entre fases
 
         logHeader(player, string.format(
-            "=== DupeTest | 8 fases | item_ns=%d item_st=%d | ~%.0fs total ===",
-            CFG.item_ns, CFG.item_st, (8 * phaseDuration) / 1000
+            "=== DupeTest | 9 fases | item_ns=%d item_st=%d | ~%.0fs total ===",
+            CFG.item_ns, CFG.item_st, (9 * phaseDuration) / 1000
         ))
 
         local pid = player:getId()
         local guid = player:getGuid()
 
-        for i = 1, 8 do
+        for i = 1, 9 do
             addEvent(function(pid2, g2, idx)
                 local p = safePlayer(pid2, g2)
                 if not p then return end
-                logHeader(p, string.format("-- Iniciando Phase %d/8 --", idx))
+                logHeader(p, string.format("-- Iniciando Phase %d/9 --", idx))
                 local fn = phaseMap[idx]
                 if fn then fn(p) end
             end, (i - 1) * phaseDuration, pid, guid, i)
@@ -1024,20 +1175,20 @@ function dupeAction.onSay(player, words, param)
                 if anyPhaseFailed then
                     logHeader(p, "=== DupeTest COMPLETO - UMA OU MAIS FASES FALHARAM ===")
                 else
-                    logHeader(p, "=== DupeTest COMPLETO - TODAS AS 8 FASES PASSARAM ===")
+                    logHeader(p, "=== DupeTest COMPLETO - TODAS AS 9 FASES PASSARAM ===")
                 end
             end
             activeRuns[g] = false
-        end, 8 * phaseDuration + 1500, pid, guid)
+        end, 9 * phaseDuration + 1500, pid, guid)
 
         logHeader(player, string.format(
-            "Fases espacadas ~%.0fs cada | resultados aparecem gradualmente.",
+            "Fases espacadas ~%.0fs cada | Ph9 usa drainAsyncSave (barreira real) | resultados aparecem gradualmente.",
             phaseDuration / 1000
         ))
         return false
     end
 
-    player:sendTextMessage(MSG_BLUE, "Uso: /dupe [start|1-8|info|clean]")
+    player:sendTextMessage(MSG_BLUE, "Uso: /dupe [start|1-9|info|clean]")
     return false
 end
 

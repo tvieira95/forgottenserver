@@ -45,10 +45,10 @@ public:
 
 	[[nodiscard]] bool isSaving() const noexcept
 	{
-		return saving.load(std::memory_order_relaxed) || pendingSaveFlushes.load(std::memory_order_relaxed) != 0;
+		return saving.load(std::memory_order_acquire) || pendingSaveFlushes.load(std::memory_order_acquire) != 0;
 	}
-	[[nodiscard]] uint64_t getLastSaveTime() const noexcept { return lastSaveDurationMs.load(std::memory_order_relaxed); }
-	[[nodiscard]] uint32_t getLastPlayerCount() const noexcept { return lastPlayersSaved.load(std::memory_order_relaxed); }
+	[[nodiscard]] uint64_t getLastSaveTime() const noexcept { return lastSaveDurationMs.load(std::memory_order_acquire); }
+	[[nodiscard]] uint32_t getLastPlayerCount() const noexcept { return lastPlayersSaved.load(std::memory_order_acquire); }
 
 private:
 	struct PendingPlayerFlush
