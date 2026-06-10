@@ -190,13 +190,18 @@ local function readStatusVar(varName)
     return v
 end
 
--- Marca uma fase assincrona como completa. Quando todas terminam, agenda tryFinalizeAsyncSettle.
+-- Tabela de callbacks para evitar captura de upvalue (TFS closures perdem referencias forward)
+local PhaseCallbacks = {}
+
+-- Marca uma fase assincrona como completa. Quando todas terminam, agenda finalizacao via PhaseCallbacks.
 local function completeAsyncPhase(guid, phase, ok)
     if not asyncResults[guid] or not asyncPending[guid] then return end
     asyncResults[guid][phase] = ok
     asyncPending[guid] = asyncPending[guid] - 1
     if asyncPending[guid] <= 0 and settleData[guid] then
-        addEvent(function(g) tryFinalizeAsyncSettle(g) end, 1, guid)
+        if PhaseCallbacks.finalize then
+            addEvent(PhaseCallbacks.finalize, 1, guid)
+        end
     end
 end
 
@@ -1564,9 +1569,9 @@ local function runPhase11(player, runId)
 end
 
 -- ============================================================================
--- ASYNC SETTLE FINALIZER  (definido apos runPhase6, chamado via completeAsyncPhase)
+-- ASYNC SETTLE FINALIZER  (atribuido a PhaseCallbacks.finalize apos runPhase6)
 -- ============================================================================
-local function tryFinalizeAsyncSettle(guid)
+PhaseCallbacks.finalize = function(guid)
     local sd = settleData[guid]
     if not sd then return end
     settleData[guid] = nil
@@ -1774,7 +1779,7 @@ function stressTalkAction.onSay(player, words, param)
                         logFail(p, "Timeout: algumas fases assincronas nao completaram. Summary forcado.")
                     end
                 end
-                tryFinalizeAsyncSettle(g)
+                PhaseCallbacks.finalize(g)
             end
             asyncResults[g] = nil
             asyncPending[g] = nil
