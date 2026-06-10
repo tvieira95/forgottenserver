@@ -98,6 +98,9 @@ local MSG_BLUE = MESSAGE_STATUS_CONSOLE_BLUE or MESSAGE_EVENT_ADVANCE or 19
 local MSG_RED = MESSAGE_STATUS_CONSOLE_RED or MESSAGE_STATUS_WARNING or MSG_BLUE
 
 local activeRuns = {}  -- Indexado pelo GUID do jogador para permitir multiplos GMs
+local asyncResults = {}  -- asyncResults[guid][phase] = true/false para fases com callback async
+local asyncPending = {}  -- asyncPending[guid] = contador de callbacks async ainda nao resolvidos
+local settleData = {}    -- settleData[guid] = {pid, guid, runId, wallStart, results} para o summary final
 
 -- ============================================================================
 -- UTILIDADES
@@ -185,6 +188,50 @@ local function readStatusVar(varName)
     local v = tonumber(result.getString(res, "Value")) or 0
     result.free(res)
     return v
+end
+
+-- Marca uma fase assincrona como completa e dispara o summary se todas terminaram.
+local function completeAsyncPhase(guid, phase, ok)
+    if not asyncResults[guid] or not asyncPending[guid] then return end
+    asyncResults[guid][phase] = ok
+    asyncPending[guid] = asyncPending[guid] - 1
+    if asyncPending[guid] <= 0 and settleData[guid] then
+        local sd = settleData[guid]
+        settleData[guid] = nil
+        addEvent(function()
+            local p = safePlayer(sd.pid, sd.guid)
+            if not p then
+                activeRuns[sd.guid] = false
+                asyncResults[sd.guid] = nil
+                asyncPending[sd.guid] = nil
+                return
+            end
+            sd.results[6] = runPhase6(p, sd.runId)
+            local ar = asyncResults[sd.guid] or {}
+            local total, passed = 0, 0
+            for i = 1, 5 do
+                total = total + 1
+                if ar[i] ~= false then passed = passed + 1 end
+            end
+            for i = 6, 11 do
+                if sd.results[i] ~= nil then
+                    total = total + 1
+                    if sd.results[i] == true then passed = passed + 1 end
+                end
+            end
+            local wall = (os.clock() - sd.wallStart) * 1000
+            if passed == total then
+                print(COLOR_BLUE .. "[StressDB]" .. COLOR_GREEN .. "[INFO]" .. COLOR_RESET .. " " ..
+                      COLOR_BLUE .. string.format("=== STRESS COMPLETO: ALL PASS | wall ~%.0fms ===", wall) .. COLOR_RESET)
+                p:sendTextMessage(MSG_BLUE, string.format("[StressDB][PASS] === STRESS COMPLETO: ALL PASS | wall ~%.0fms ===", wall))
+            else
+                logFail(p, string.format("=== STRESS COMPLETO: %d/%d PASS | wall ~%.0fms - revise os FAILs! ===", passed, total, wall))
+            end
+            activeRuns[sd.guid] = false
+            asyncResults[sd.guid] = nil
+            asyncPending[sd.guid] = nil
+        end, 0)
+    end
 end
 
 -- ============================================================================
@@ -282,7 +329,10 @@ local function runPhase1(player, runId)
 
     addEvent(function(pId, guid, rId, nVal, nbVal, failVal, txOkVal, elapsedAC, elapsedTX, qpsAC, qpsTX)
         local p = safePlayer(pId, guid)
-        if not p then return end
+        if not p then
+            completeAsyncPhase(guid, 1, false)
+            return
+        end
 
         local safeLabel2 = sqlString("ph1_lastid_probe")
         db.query(string.format(
@@ -291,7 +341,9 @@ local function runPhase1(player, runId)
         ))
         local lastId = db.lastInsertId()
 
-        if failVal == 0 and txOkVal and lastId > 0 then
+        local ph1cOk = (failVal == 0 and txOkVal and lastId > 0)
+
+        if ph1cOk then
             logPass(p, string.format(
                 "Phase 1: AC=%d/%d (%.0f q/s | %.1fms) | TX=%d (%.0f q/s | %.1fms) | LAST_INSERT_ID=%d",
                 nVal, nVal, qpsAC, elapsedAC * 1000,
@@ -309,6 +361,8 @@ local function runPhase1(player, runId)
                 logFail(p, "Phase 1: LAST_INSERT_ID=0 - getLastInsertId() pode estar retornando de conexao errada!")
             end
         end
+
+        completeAsyncPhase(guid, 1, ph1cOk)
     end, 1, playerId, playerGuid, runIdC, nC, nbC, failC, txOkC, elapsedACC, elapsedTXC, qpsACC, qpsTXC)
 
     -- Phase 1c runs async; return early (pass/fail reported via callback above)
@@ -379,7 +433,10 @@ local function runPhase2(player, runId)
 
     addEvent(function(playerId, playerGuid, nKeys, keyBase)
         local p = safePlayer(playerId, playerGuid)
-        if not p then return end
+        if not p then
+            completeAsyncPhase(playerGuid, 2, false)
+            return
+        end
 
         -- Monta a lista IN(key1, key2, ...) de todas as keys impares esperadas
         local presentKeys = {}
@@ -453,6 +510,8 @@ local function runPhase2(player, runId)
             logFail(p, "  -> Verifique buildPlayerSave snapshot + result:next() do storeQuery.")
         end
 
+        completeAsyncPhase(playerGuid, 2, total == 0)
+
         -- Cleanup
         for i = 1, nKeys do
             p:setStorageValue(keyBase + i, -1)
@@ -497,17 +556,22 @@ local function runPhase3(player, runId)
 
     addEvent(function(playerId, playerGuid, storageKey, expectedVal, totalSaves)
         local p = safePlayer(playerId, playerGuid)
-        if not p then return end
+        if not p then
+            completeAsyncPhase(playerGuid, 3, false)
+            return
+        end
 
         local res = db.storeQuery(string.format(
             "SELECT `value` FROM `player_storage` WHERE `player_id`=%d AND `key`=%d",
             playerGuid, storageKey
         ))
+        local ph3ok = false
 
         if res and res ~= false and res ~= nil then
             local dbVal = result.getNumber(res, "value")
             result.free(res)
-            if dbVal == expectedVal then
+            ph3ok = (dbVal == expectedVal)
+            if ph3ok then
                 logPass(p, string.format(
                     "Phase 3: DB=%d (esperado %d) - flush ordering OK (%d saves)",
                     dbVal, expectedVal, totalSaves
@@ -527,6 +591,8 @@ local function runPhase3(player, runId)
 
         p:setStorageValue(storageKey, -1)
         p:save()
+
+        completeAsyncPhase(playerGuid, 3, ph3ok)
 
     end, verifyDelay, pid, guid, key, n * 99, n)
 
@@ -640,7 +706,10 @@ local function runPhase4(player, runId)
 
     addEvent(function(playerId, playerGuid, rId, nRows, expected, dlBefore, lwBefore)
         local p = safePlayer(playerId, playerGuid)
-        if not p then return end
+        if not p then
+            completeAsyncPhase(playerGuid, 4, false)
+            return
+        end
 
         local actualTotal = 0
         local rowsFound   = 0
@@ -688,6 +757,8 @@ local function runPhase4(player, runId)
         else
             logFail(p, string.format("Phase 4: Apenas %d/%d linhas encontradas.", rowsFound, nRows))
         end
+
+        completeAsyncPhase(playerGuid, 4, rowsFound == nRows and actualTotal == expected)
 
     end, verifyDelay, pid, guid, runId, rows, totalExpected, deadlocksBefore, lockWaitsBefore)
 
@@ -752,7 +823,10 @@ local function runPhase5(player, runId)
 
     addEvent(function(playerId, playerGuid, rId, expectedWrites, wallStart)
         local p = safePlayer(playerId, playerGuid)
-        if not p then return end
+        if not p then
+            completeAsyncPhase(playerGuid, 5, false)
+            return
+        end
 
         local res = db.storeQuery(string.format(
             "SELECT COUNT(*) AS cnt FROM `%s` WHERE `run_id`=%d AND `phase`=5",
@@ -777,6 +851,9 @@ local function runPhase5(player, runId)
                 cnt, expectedWrites, expectedWrites - cnt
             ))
         end
+
+        completeAsyncPhase(playerGuid, 5, cnt == expectedWrites)
+
     end, verifyDelay, pid, guid, runId, math.floor(n / 2), t0)
 
     log(player, string.format(
@@ -1654,57 +1731,79 @@ function stressTalkAction.onSay(player, words, param)
         results[10] = runPhase10(player, runId)
         results[11] = runPhase11(player, runId)
 
-        -- Settle: aguarda flushes assincronos das fases 2, 3, 4 e 5
+        -- Async tracking: phases 1c, 2, 3, 4, 5 report results via callbacks.
+        -- Inicializa tracking com default=pass; callbacks marcam false se falharem.
+        -- O summary final dispara quando todas 5 fases async completarem (ou por timeout).
+        local stressGuid = player:getGuid()
+        asyncResults[stressGuid] = {[1] = true, [2] = true, [3] = true, [4] = true, [5] = true}
+        asyncPending[stressGuid] = 5
+
+        settleData[stressGuid] = {
+            pid = player:getId(),
+            guid = stressGuid,
+            runId = runId,
+            wallStart = wallStart,
+            results = results,
+        }
+
+        -- Safety timeout: se algum callback nunca disparar, forca summary apos settleTime + buffer
         local settleTime = math.max(
             (CFG.ph3_save_count * CFG.ph3_stagger_ms) + REPORT_DELAY + 1200,
             REPORT_DELAY + 2200
         ) + 800
-
-		local stressGuid = player:getGuid()
-		addEvent(function(pid, rId, wStart, r, g)
-			local p = safePlayer(pid, g)
-			if not p then
-				activeRuns[g] = false
-				return
-			end
-
-            r[6] = runPhase6(p, rId)
-
-            local passed = 0
-            local total  = 0
-            for _, v in pairs(r) do
-                total = total + 1
-                if v == true then passed = passed + 1 end
+        addEvent(function(g)
+            if settleData[g] and asyncPending[g] and asyncPending[g] > 0 then
+                asyncPending[g] = 0
+                local sd = settleData[g]
+                settleData[g] = nil
+                -- Fases restantes marcadas como fail por timeout
+                if asyncResults[g] then
+                    for ph = 1, 5 do
+                        if asyncResults[g][ph] == nil then
+                            asyncResults[g][ph] = false
+                        end
+                    end
+                end
+                if sd then
+                    local p = safePlayer(sd.pid, sd.guid)
+                    if p then
+                        logFail(p, "Timeout: algumas fases assincronas nao completaram. Summary forcado.")
+                    end
+                    sd.results[6] = runPhase6(p or player, sd.runId)
+                    local ar = asyncResults[g] or {}
+                    local _total, _passed = 0, 0
+                    for i = 1, 5 do
+                        _total = _total + 1
+                        if ar[i] ~= false then _passed = _passed + 1 end
+                    end
+                    for i = 6, 11 do
+                        if sd.results[i] ~= nil then
+                            _total = _total + 1
+                            if sd.results[i] == true then _passed = _passed + 1 end
+                        end
+                    end
+                    if p then
+                        local _wall = (os.clock() - sd.wallStart) * 1000
+                        if _passed == _total then
+                            p:sendTextMessage(MSG_BLUE, string.format("[StressDB][PASS] === STRESS COMPLETO: ALL PASS | wall ~%.0fms ===", _wall))
+                        else
+                            logFail(p, string.format("=== STRESS COMPLETO: %d/%d PASS | wall ~%.0fms (timeout parcial) ===", _passed, _total, _wall))
+                        end
+                    end
+                    activeRuns[g] = false
+                end
             end
+            asyncResults[g] = nil
+            asyncPending[g] = nil
+        end, settleTime + 5000, stressGuid)
 
-            local wall   = (os.clock() - wStart) * 1000
-            local status = passed == total
-                and "ALL PASS"
-                or string.format("%d/%d PASS", passed, total)
-
-			if passed == total then
-				print(COLOR_BLUE .. "[StressDB]" .. COLOR_GREEN .. "[INFO]" .. COLOR_RESET .. " " .. 
-					  COLOR_BLUE .. string.format("=== STRESS COMPLETO: %s | wall ~%.0fms ===", status, wall) .. COLOR_RESET)
-				p:sendTextMessage(MSG_BLUE, string.format(
-					"[StressDB][PASS] === STRESS COMPLETO: %s | wall ~%.0fms ===", status, wall
-				))
-			else
-				logFail(p, string.format(
-					"=== STRESS COMPLETO: %s | wall ~%.0fms - revise os FAILs! ===",
-					status, wall
-				))
-			end
-			activeRuns[g] = false
-
-        end, settleTime, player:getId(), runId, wallStart, results, stressGuid)
-
-		local execMsg = string.format(
-            "Fases 1-11 em execucao | Phase 6 (integridade final) em ~%.0fms", settleTime
+        local execMsg = string.format(
+            "Fases 1-11 em execucao | resultados async alimentam summary final (timeout=~%.0fms)", settleTime + 5000
         )
-		print(COLOR_BLUE .. "[StressDB]" .. COLOR_RESET .. " " .. 
-			  COLOR_ORANGE .. "Fases 1-11 em execucao" .. COLOR_RESET .. 
-			  string.format(" | Phase 6 (integridade final) em ~%.0fms", settleTime))
-		player:sendTextMessage(MSG_BLUE, "[StressDB] " .. execMsg)
+        print(COLOR_BLUE .. "[StressDB]" .. COLOR_RESET .. " " ..
+              COLOR_ORANGE .. "Fases 1-11 em execucao" .. COLOR_RESET ..
+              string.format(" | resultados async alimentam summary final (timeout=~%.0fms)", settleTime + 5000))
+        player:sendTextMessage(MSG_BLUE, "[StressDB] " .. execMsg)
         return false
     end
 

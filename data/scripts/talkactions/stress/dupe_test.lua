@@ -48,19 +48,12 @@
 -- ============================================================================
 -- Itens de teste - use IDs que nao interfiram com inventario real.
 -- Se o servidor tiver itens QA/debug, defina QA_ITEM_NS e QA_ITEM_ST abaixo.
-local QA_ITEM_NS = 3280   -- Fire Sword (troque por IDs reservados QA, ex. >= 65000)
-local QA_ITEM_ST = 3031   -- Gold Coin (troque por IDs reservados QA, ex. >= 65000)
+local QA_ITEM_NS = 65000   -- QA-only non-stackable test item
+local QA_ITEM_ST = 65001   -- QA-only stackable test item
 
--- Seguranca: verifica no registro que os itens existem (evita IDs invalidos)
-do
-    local itemType = ItemType(QA_ITEM_NS)
-    assert(itemType and itemType:getId() == QA_ITEM_NS,
-        "QA_ITEM_NS=" .. QA_ITEM_NS .. " item invalido ou inexistente. Ajuste os IDs para itens de QA.")
-end
-do
-    local itemType = ItemType(QA_ITEM_ST)
-    assert(itemType and itemType:getId() == QA_ITEM_ST,
-        "QA_ITEM_ST=" .. QA_ITEM_ST .. " item invalido ou inexistente. Ajuste os IDs para itens de QA.")
+-- Seguranca: rejeita IDs de producao (Fire Sword=3280, Gold Coin=3031)
+if QA_ITEM_NS == 3280 or QA_ITEM_ST == 3031 then
+    error("QA item IDs must not use production item IDs (3280=Fire Sword, 3031=Gold Coin). Set QA_ITEM_NS/QA_ITEM_ST to QA-only IDs.")
 end
 
 local CFG = {
@@ -1049,6 +1042,18 @@ function dupeAction.onSay(player, words, param)
     end
 
     local cmd = (param or ""):lower():match("^%s*(.-)%s*$")
+
+    -- Runtime guard: verifica que os itens QA existem no servidor
+    local nsType = ItemType(QA_ITEM_NS)
+    if not nsType or nsType:getId() ~= QA_ITEM_NS then
+        player:sendTextMessage(MSG_RED, "Configure QA_ITEM_NS=" .. QA_ITEM_NS .. " with a valid QA-only item ID in items.xml before running /dupe.")
+        return false
+    end
+    local stType = ItemType(QA_ITEM_ST)
+    if not stType or stType:getId() ~= QA_ITEM_ST then
+        player:sendTextMessage(MSG_RED, "Configure QA_ITEM_ST=" .. QA_ITEM_ST .. " with a valid QA-only item ID in items.xml before running /dupe.")
+        return false
+    end
 
     -- ── INFO ──────────────────────────────────────────────────────────────────
     if cmd == "info" then
