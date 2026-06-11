@@ -1781,7 +1781,7 @@ bool IOLoginData::createPlayer(uint32_t accountId, const std::string& name, uint
 	query << db.escapeString(name) << ", 1, " << accountId << ", " << level << ", " << vocationId << ", "
 		  << health << ", " << health << ", " << experience << ", 0, 0, 0, 0, " << lookType << ", 0, 2, " << magicLevel << ", "
 		  << mana << ", " << mana << ", 0, 0, " << townId << ", " << posX << ", " << posY << ", " << posZ
-		  << ", " << cap << ", " << static_cast<uint16_t>(sex) << ", 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 43200, -1, 2520, "
+		  << ", " << cap << ", " << static_cast<uint16_t>(sex) << ", 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 43200, -1, 2520, "
 		  << "10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0, 10, 0)";
 
 	return db.executeQuery(query.str());
