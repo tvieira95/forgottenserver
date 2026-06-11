@@ -4,8 +4,8 @@
 
 local OPCODE_BOSS_COOLDOWN = 0x2C
 
-local function isOTC(player)
-	return player and player:isUsingOtClient()
+local function supportsAstraClient(player)
+	return player and player.isUsingAstraClient and player:isUsingAstraClient()
 end
 
 local function getBossOutfit(lookType)
@@ -42,7 +42,7 @@ local function getBossList()
 end
 
 local function sendCooldowns(player)
-	if not player or not isOTC(player) then return false end
+	if not supportsAstraClient(player) then return false end
 
 	local kv = player:kv()
 	if not kv then return false end
@@ -91,7 +91,7 @@ end
 -- Login event
 local bossLogin = CreatureEvent("BossCooldownLogin")
 function bossLogin.onLogin(player)
-	if not isOTC(player) then return true end
+	if not supportsAstraClient(player) then return true end
 	addEvent(function(pid)
 		local p = Player(pid)
 		if p then sendCooldowns(p) end

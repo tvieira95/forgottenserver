@@ -2472,6 +2472,7 @@ void ProtocolGame::sendLootContainers()
 	msg.addByte(0xC0);
 	msg.addByte(player->getQuickLootFallbackToMainContainer() ? 1 : 0);
 	msg.addByte(0); // managed loot containers
+	msg.addByte(0); // managed obtain containers
 	writeToOutputBuffer(msg);
 }
 

@@ -321,6 +321,10 @@ local function findDestinationContainer(player, category)
 end
 
 local function sendLootContainers(player)
+	if not supportsCustomNetwork(player) then
+		return false
+	end
+
 	local pid = player:getId()
 
 	local msg = NetworkMessage(player)
@@ -330,8 +334,7 @@ local function sendLootContainers(player)
 
 	if not managedContainers[pid] then
 		msg:addByte(0)
-		msg:sendToPlayer(player)
-		return
+		return msg:sendToPlayer(player)
 	end
 
 	-- First section: loot containers (category + lootId, 3 bytes each)
@@ -366,17 +369,21 @@ local function sendLootContainers(player)
 		end
 	end
 
-	msg:sendToPlayer(player)
+	return msg:sendToPlayer(player)
 end
 
 local function sendLootStats(player, itemId, count)
+	if not supportsCustomNetwork(player) then
+		return false
+	end
+
 	local msg = NetworkMessage(player)
 	msg:addByte(OPCODE_SEND_LOOT_STATS)
 	msg:addItemId(itemId)
 	msg:addByte(count)
 	local itemType = ItemType(itemId)
 	msg:addString(itemType and itemType:getName() or "")
-	msg:sendToPlayer(player)
+	return msg:sendToPlayer(player)
 end
 
 local function findDestinationContainerCached(player, category, cache)
@@ -591,6 +598,9 @@ end
 -- CreatureEvent: auto-loot on kill
 local killEvent = CreatureEvent("QuickLootKill")
 function killEvent.onKill(player, target)
+	if not supportsCustomNetwork(player) then
+		return true
+	end
 
 	local killerId = player:getId()
 	local targetPos = target:getPosition()
@@ -599,6 +609,9 @@ function killEvent.onKill(player, target)
 	addEvent(function()
 		local killer = Player(killerId)
 		if not killer then
+			return
+		end
+		if not supportsCustomNetwork(killer) then
 			return
 		end
 
@@ -616,7 +629,7 @@ function killEvent.onKill(player, target)
 		local party = killer:getParty()
 		if party then
 			local leader = party:getLeader()
-			if leader and leader ~= killer then
+			if leader and leader ~= killer and supportsCustomNetwork(leader) then
 				local leaderPos = leader:getPosition()
 				if leaderPos:getDistance(targetPos) <= 10 then
 					recipient = leader
@@ -862,6 +875,10 @@ blackWhitelistHandler:register()
 -- Login handler: restore state from KV and send loot container state
 local loginEvent = CreatureEvent("QuickLootLogin")
 function loginEvent.onLogin(player)
+	if not supportsCustomNetwork(player) then
+		return true
+	end
+
 	local pid = player:getId()
 	managedContainers[pid] = managedContainers[pid] or {}
 	quickLootState[pid] = quickLootState[pid] or {

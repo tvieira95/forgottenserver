@@ -6685,48 +6685,58 @@ void Player::flushPendingLoot(const std::string& groupKey)
 		ss << ": ";
 	}
 
-	bool first = true;
-	const bool colorizedLootValue = ConfigManager::getBoolean(ConfigManager::COLORIZED_LOOT_VALUE);
-	for (auto& [itemId, count] : group->items) {
-		const ItemType& itemType = Item::items[itemId];
-		if (!first) {
-			ss << ", ";
-		}
-		first = false;
-		if (colorizedLootValue) {
-			const uint64_t itemValue = static_cast<uint64_t>(itemType.sellPrice > 0 ? itemType.sellPrice : itemType.buyPrice) * count;
-			ss << "{" << itemId << ":" << itemValue << "|";
-		}
-		if (count > 1) {
-			ss << count << " " << itemType.getPluralName();
-		} else {
-			if (itemType.article.empty() || itemType.stackable) {
-				ss << "1 " << itemType.name;
+	const std::string prefix = ss.str();
+	const auto buildLootText = [&](bool colorized) {
+		std::stringstream text;
+		text << prefix;
+		bool first = true;
+		for (auto& [itemId, count] : group->items) {
+			const ItemType& itemType = Item::items[itemId];
+			if (!first) {
+				text << ", ";
+			}
+			first = false;
+			if (colorized) {
+				const uint64_t itemValue =
+				    static_cast<uint64_t>(itemType.sellPrice > 0 ? itemType.sellPrice : itemType.buyPrice) * count;
+				text << "{" << itemId << ":" << itemValue << "|";
+			}
+			if (count > 1) {
+				text << count << " " << itemType.getPluralName();
+			} else if (itemType.article.empty() || itemType.stackable) {
+				text << "1 " << itemType.name;
 			} else {
-				ss << itemType.article << " " << itemType.name;
+				text << itemType.article << " " << itemType.name;
+			}
+			if (colorized) {
+				text << "}";
 			}
 		}
-		if (colorizedLootValue) {
-			ss << "}";
-		}
-	}
-	ss << ".";
+		text << ".";
+		return text.str();
+	};
 
-	std::string text = ss.str();
+	const bool colorizedLootEnabled = ConfigManager::getBoolean(ConfigManager::COLORIZED_LOOT_VALUE);
+	const std::string plainText = buildLootText(false);
+	const std::string colorizedText = colorizedLootEnabled ? buildLootText(true) : plainText;
+	const auto sendLootText = [&](Player& recipient) {
+		recipient.sendChannelMessage(
+		    "", colorizedLootEnabled && recipient.isAstraClient() ? colorizedText : plainText, TALKTYPE_CHANNEL_O, 10);
+	};
 
 	const auto& party = getParty();
 	if (party && party->isSharedExperienceEnabled()) {
 		const auto& leader = party->getLeader();
 		if (leader) {
-			leader->sendChannelMessage("", text, TALKTYPE_CHANNEL_O, 10);
+			sendLootText(*leader);
 		}
 		for (auto& member : party->getMembers()) {
 			if (auto memberPtr = member.lock()) {
-				memberPtr->sendChannelMessage("", text, TALKTYPE_CHANNEL_O, 10);
+				sendLootText(*memberPtr);
 			}
 		}
 	} else {
-		sendChannelMessage("", text, TALKTYPE_CHANNEL_O, 10);
+		sendLootText(*this);
 	}
 
 	m_pendingLootGroups.erase(it);

@@ -108,7 +108,7 @@ event.onDropLoot = function(self, corpse)
 				local useColorized = configManager.getBoolean(configKeys.COLORIZED_LOOT_VALUE)
 				local party = player:getParty()
 				if useColorized then
-					-- Per-receiver message: colorized for OtClient, plain for others
+					-- Per-receiver message: colorized for AstraClient, plain for others
 					local colorizedText = ("Loot of %s: %s%s."):format(mType:getNameDescription(),
 					                                                   corpse:getContentDescription(true),
 					                                                   preyLootText)
@@ -119,15 +119,15 @@ event.onDropLoot = function(self, corpse)
 						local members = party:getMembers()
 						local leader = party:getLeader()
 						if leader then
-							local leaderText = (leader.isUsingOtClient and leader:isUsingOtClient()) and colorizedText or plainText
+							local leaderText = (leader.isUsingAstraClient and leader:isUsingAstraClient()) and colorizedText or plainText
 							sendLootMessage(leader, leaderText)
 						end
 						for _, member in ipairs(members) do
-							local memberText = (member.isUsingOtClient and member:isUsingOtClient()) and colorizedText or plainText
+							local memberText = (member.isUsingAstraClient and member:isUsingAstraClient()) and colorizedText or plainText
 							sendLootMessage(member, memberText)
 						end
 					else
-						local playerText = (player.isUsingOtClient and player:isUsingOtClient()) and colorizedText or plainText
+						local playerText = (player.isUsingAstraClient and player:isUsingAstraClient()) and colorizedText or plainText
 						sendLootMessage(player, playerText)
 					end
 				else

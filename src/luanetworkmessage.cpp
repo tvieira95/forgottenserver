@@ -15,7 +15,6 @@ bool isOtcOnlyLuaOpcode(uint8_t opcode)
 	switch (opcode) {
 		case 0x29: // custom supply stash
 		case 0x2B: // custom party hunt analyzer
-		case 0x2C: // custom boss cooldown
 		case 0x2D: // custom charm activated
 		case 0x2F: // custom unjustified points
 		case 0x30: // custom imbuement activated
@@ -29,8 +28,6 @@ bool isOtcOnlyLuaOpcode(uint8_t opcode)
 		case 0xA7: // custom fight mode sync
 		case 0xBA: // native hunting task base data
 		case 0xBB: // native hunting task slot data
-		case 0xC6: // custom item values
-		case 0xC7: // custom item details
 		case 0xD1: // custom hunt analyzer
 		case 0xDB: // custom market
 		case 0xEB: // imbuing window
@@ -48,6 +45,22 @@ bool isOtcOnlyLuaOpcode(uint8_t opcode)
 	}
 }
 
+bool isAstraOnlyLuaOpcode(uint8_t opcode)
+{
+	switch (opcode) {
+		case 0x2C: // custom boss cooldown
+		case 0x9B: // blessing window
+		case 0x9C: // blessing status
+		case 0xC0: // managed quick-loot containers
+		case 0xC6: // custom item values
+		case 0xC7: // custom item details
+		case 0xCF: // quick-loot statistics
+			return true;
+		default:
+			return false;
+	}
+}
+
 bool canSendLuaNetworkMessageToPlayer(const NetworkMessage& message, const Player& player)
 {
 	if (message.getLength() == 0) {
@@ -55,6 +68,9 @@ bool canSendLuaNetworkMessageToPlayer(const NetworkMessage& message, const Playe
 	}
 
 	const uint8_t opcode = message.getBuffer()[NetworkMessage::INITIAL_BUFFER_POSITION];
+	if (isAstraOnlyLuaOpcode(opcode) && !player.isAstraClient()) {
+		return false;
+	}
 	return !isOtcOnlyLuaOpcode(opcode) || player.isOTC();
 }
 
