@@ -1501,6 +1501,249 @@ int luaPlayerSetBankBalance(lua_State* L)
 	return 1;
 }
 
+// Task Hunting Points
+int luaPlayerGetTaskHuntingPoints(lua_State* L)
+{
+	// player:getTaskHuntingPoints()
+	const Player* player = getUserdata<const Player>(L, 1);
+	if (player) {
+		lua_pushinteger(L, player->getTaskHuntingPoints());
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerSetTaskHuntingPoints(lua_State* L)
+{
+	// player:setTaskHuntingPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Task hunting points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->setTaskHuntingPoints(static_cast<uint64_t>(points));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerAddTaskHuntingPoints(lua_State* L)
+{
+	// player:addTaskHuntingPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Task hunting points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->addTaskHuntingPoints(static_cast<uint64_t>(points));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerRemoveTaskHuntingPoints(lua_State* L)
+{
+	// player:removeTaskHuntingPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Task hunting points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	pushBoolean(L, player->removeTaskHuntingPoints(static_cast<uint64_t>(points)));
+	return 1;
+}
+
+// Bounty Task Points
+int luaPlayerGetBountyPoints(lua_State* L)
+{
+	// player:getBountyPoints()
+	const Player* player = getUserdata<const Player>(L, 1);
+	if (player) {
+		lua_pushinteger(L, player->getBountyPoints());
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerSetBountyPoints(lua_State* L)
+{
+	// player:setBountyPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t bountyPoints = getInteger<int64_t>(L, 2);
+	if (bountyPoints < 0) {
+		reportErrorFunc(L, "Bounty points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->setBountyPoints(static_cast<uint64_t>(bountyPoints));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerAddBountyPoints(lua_State* L)
+{
+	// player:addBountyPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Bounty points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->addBountyPoints(static_cast<uint64_t>(points));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerRemoveBountyPoints(lua_State* L)
+{
+	// player:removeBountyPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Bounty points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	pushBoolean(L, player->removeBountyPoints(static_cast<uint64_t>(points)));
+	return 1;
+}
+
+// Soulseals Points
+int luaPlayerGetSoulsealsPoints(lua_State* L)
+{
+	// player:getSoulsealsPoints()
+	const Player* player = getUserdata<const Player>(L, 1);
+	if (player) {
+		lua_pushinteger(L, player->getSoulsealsPoints());
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerSetSoulsealsPoints(lua_State* L)
+{
+	// player:setSoulsealsPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t soulsealsPoints = getInteger<int64_t>(L, 2);
+	if (soulsealsPoints < 0) {
+		reportErrorFunc(L, "Soulseals points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->setSoulsealsPoints(static_cast<uint64_t>(soulsealsPoints));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerAddSoulsealsPoints(lua_State* L)
+{
+	// player:addSoulsealsPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Soulseals points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	player->addSoulsealsPoints(static_cast<uint64_t>(points));
+	pushBoolean(L, true);
+	return 1;
+}
+
+int luaPlayerRemoveSoulsealsPoints(lua_State* L)
+{
+	// player:removeSoulsealsPoints(points)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	int64_t points = getInteger<int64_t>(L, 2);
+	if (points < 0) {
+		reportErrorFunc(L, "Soulseals points value must be non-negative.");
+		lua_pushnil(L);
+		return 1;
+	}
+	pushBoolean(L, player->removeSoulsealsPoints(static_cast<uint64_t>(points)));
+	return 1;
+}
+
+// Weekly Expansion
+int luaPlayerHasWeeklyExpansion(lua_State* L)
+{
+	// player:hasWeeklyExpansion()
+	const Player* player = getUserdata<const Player>(L, 1);
+	if (player) {
+		pushBoolean(L, player->hasWeeklyExpansion());
+	} else {
+		lua_pushnil(L);
+	}
+	return 1;
+}
+
+int luaPlayerSetWeeklyExpansion(lua_State* L)
+{
+	// player:setWeeklyExpansion(has)
+	Player* player = getUserdata<Player>(L, 1);
+	if (!player) {
+		lua_pushnil(L);
+		return 1;
+	}
+
+	player->setWeeklyExpansion(getBoolean(L, 2));
+	pushBoolean(L, true);
+	return 1;
+}
+
 int luaPlayerAddItem(lua_State* L)
 {
 	// player:addItem(itemId[, count = 1[, canDropOnMap = true[, subType = 1[, slot = CONST_SLOT_WHEREEVER]]]])
@@ -4335,6 +4578,24 @@ void LuaScriptInterface::registerPlayer()
 
 	registerMethod("Player", "getBankBalance", luaPlayerGetBankBalance);
 	registerMethod("Player", "setBankBalance", luaPlayerSetBankBalance);
+
+	registerMethod("Player", "getTaskHuntingPoints", luaPlayerGetTaskHuntingPoints);
+	registerMethod("Player", "setTaskHuntingPoints", luaPlayerSetTaskHuntingPoints);
+	registerMethod("Player", "addTaskHuntingPoints", luaPlayerAddTaskHuntingPoints);
+	registerMethod("Player", "removeTaskHuntingPoints", luaPlayerRemoveTaskHuntingPoints);
+
+	registerMethod("Player", "getBountyPoints", luaPlayerGetBountyPoints);
+	registerMethod("Player", "setBountyPoints", luaPlayerSetBountyPoints);
+	registerMethod("Player", "addBountyPoints", luaPlayerAddBountyPoints);
+	registerMethod("Player", "removeBountyPoints", luaPlayerRemoveBountyPoints);
+
+	registerMethod("Player", "getSoulsealsPoints", luaPlayerGetSoulsealsPoints);
+	registerMethod("Player", "setSoulsealsPoints", luaPlayerSetSoulsealsPoints);
+	registerMethod("Player", "addSoulsealsPoints", luaPlayerAddSoulsealsPoints);
+	registerMethod("Player", "removeSoulsealsPoints", luaPlayerRemoveSoulsealsPoints);
+
+	registerMethod("Player", "hasWeeklyExpansion", luaPlayerHasWeeklyExpansion);
+	registerMethod("Player", "setWeeklyExpansion", luaPlayerSetWeeklyExpansion);
 
 	registerMethod("Player", "addItem", luaPlayerAddItem);
 	registerMethod("Player", "addItemEx", luaPlayerAddItemEx);

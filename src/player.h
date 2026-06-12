@@ -282,6 +282,25 @@ public:
 	void setPreyDamageReduction(std::string monsterName, uint16_t value);
 	uint16_t getPreyDamageBoost(std::string_view monsterName) const;
 	uint16_t getPreyDamageReduction(std::string_view monsterName) const;
+
+	// Task Hunting / Bounty / Weekly / Soulseals
+	uint64_t getTaskHuntingPoints() const { return taskHuntingPoints; }
+	void setTaskHuntingPoints(uint64_t points) { taskHuntingPoints = points; }
+	void addTaskHuntingPoints(uint64_t points);
+	[[nodiscard]] bool removeTaskHuntingPoints(uint64_t points);
+
+	uint64_t getBountyPoints() const { return bountyPoints; }
+	void setBountyPoints(uint64_t points) { bountyPoints = points; }
+	void addBountyPoints(uint64_t points);
+	[[nodiscard]] bool removeBountyPoints(uint64_t points);
+
+	uint64_t getSoulsealsPoints() const { return soulsealsPoints; }
+	void setSoulsealsPoints(uint64_t points) { soulsealsPoints = points; }
+	void addSoulsealsPoints(uint64_t points);
+	[[nodiscard]] bool removeSoulsealsPoints(uint64_t points);
+
+	bool hasWeeklyExpansion() const { return m_hasWeeklyExpansion; }
+	void setWeeklyExpansion(bool has) { m_hasWeeklyExpansion = has; }
 	float getResetDefenseBonus() const {
 		return resetDefenseBonus;
 	}
@@ -1560,6 +1579,9 @@ private:
 	uint64_t manaSpent = 0;
 	uint64_t lastAttack = 0;
 	uint64_t bankBalance = 0;
+	uint64_t taskHuntingPoints = 0;
+	uint64_t bountyPoints = 0;
+	uint64_t soulsealsPoints = 0;
 	int64_t lastFailedFollow = 0;
 	int64_t skullTicks = 0;
 	int64_t lastToggleMount = 0;
@@ -1685,6 +1707,7 @@ private:
 	uint8_t m_harmony = 0;
 	bool m_serene = false;
 	uint64_t m_serene_cooldown = 0;
+	bool m_hasWeeklyExpansion = false;
 	int64_t rootImmunityEnd = 0;
 	int64_t fearImmunityEnd = 0;
 	VirtueMonk_t m_virtue = VIRTUE_NONE;

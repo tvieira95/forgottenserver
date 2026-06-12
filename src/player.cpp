@@ -290,6 +290,65 @@ uint16_t Player::getPreyDamageReduction(std::string_view monsterName) const
 	return 0;
 }
 
+// Task Hunting / Bounty / Soulseals
+
+void Player::addTaskHuntingPoints(uint64_t points)
+{
+	uint64_t maxVal = std::numeric_limits<uint64_t>::max();
+	if (taskHuntingPoints > maxVal - points) {
+		taskHuntingPoints = maxVal; // saturate
+	} else {
+		taskHuntingPoints += points;
+	}
+}
+
+bool Player::removeTaskHuntingPoints(uint64_t points)
+{
+	if (taskHuntingPoints < points) {
+		return false;
+	}
+	taskHuntingPoints -= points;
+	return true;
+}
+
+void Player::addBountyPoints(uint64_t points)
+{
+	uint64_t maxVal = std::numeric_limits<uint64_t>::max();
+	if (bountyPoints > maxVal - points) {
+		bountyPoints = maxVal;
+	} else {
+		bountyPoints += points;
+	}
+}
+
+bool Player::removeBountyPoints(uint64_t points)
+{
+	if (bountyPoints < points) {
+		return false;
+	}
+	bountyPoints -= points;
+	return true;
+}
+
+void Player::addSoulsealsPoints(uint64_t points)
+{
+	uint64_t maxVal = std::numeric_limits<uint64_t>::max();
+	if (soulsealsPoints > maxVal - points) {
+		soulsealsPoints = maxVal;
+	} else {
+		soulsealsPoints += points;
+	}
+}
+
+bool Player::removeSoulsealsPoints(uint64_t points)
+{
+	if (soulsealsPoints < points) {
+		return false;
+	}
+	soulsealsPoints -= points;
+	return true;
+}
+
 Player::~Player()
 {
 	for (auto& item : inventory) {

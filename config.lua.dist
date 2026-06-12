@@ -141,6 +141,26 @@ enableItemUpgradeClassification = false
 enableQuickLoot = false
 quickLootMaxCorpses = 30
 
+-- Enable Task Hunt / Task Board system.
+-- Requires compatible AstraClient/OTCv8 support.
+-- Default: false keeps classic 8.60 behaviour.
+taskHuntingSystemEnabled = false
+
+-- Enable Bounty Tasks inside Task Board.
+-- Requires taskHuntingSystemEnabled.
+bountyTasksEnabled = false
+
+-- Enable Weekly Tasks inside Task Board.
+-- Requires taskHuntingSystemEnabled.
+weeklyTasksEnabled = false
+
+-- Enable Soulpit arena / soul core system.
+soulpitSystemEnabled = false
+
+-- Enable Soulseals resource/window.
+-- Requires weeklyTasksEnabled or proper source of soulseals.
+soulsealsSystemEnabled = false
+
 -- Stress test: runs reactor stress tests
 -- For use test only says: /stress_reactor
 stressTest = false

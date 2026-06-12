@@ -2841,6 +2841,11 @@ void LuaScriptInterface::registerFunctions()
 	registerEnumIn("configKeys", ConfigManager::MODIFY_DAMAGE_IN_K);
 	registerEnumIn("configKeys", ConfigManager::MODIFY_EXP_IN_K);
 	registerEnumIn("configKeys", ConfigManager::DEFAULT_HEALTH_DISPLAY_PERCENT);
+	registerEnumIn("configKeys", ConfigManager::TASK_HUNTING_SYSTEM_ENABLED);
+	registerEnumIn("configKeys", ConfigManager::BOUNTY_TASKS_ENABLED);
+	registerEnumIn("configKeys", ConfigManager::WEEKLY_TASKS_ENABLED);
+	registerEnumIn("configKeys", ConfigManager::SOULPIT_SYSTEM_ENABLED);
+	registerEnumIn("configKeys", ConfigManager::SOULSEALS_SYSTEM_ENABLED);
 
 	registerEnumIn("configKeys", ConfigManager::MAP_NAME);
 	registerEnumIn("configKeys", ConfigManager::HOUSE_RENT_PERIOD);
