@@ -145,6 +145,7 @@ wheelSystemEnabled = false
 bestiarySystemEnabled = false
 marketSystemEnabled = false
 preySystemEnabled = false
+battlePassSystemEnabled = false
 weaponProficiencySystemEnabled = false
 augmentSystemEnabled = false
 monsterLevelEnabled = false
