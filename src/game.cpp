@@ -7673,6 +7673,10 @@ bool Game::reload(ReloadTypes_t reloadType)
 			g_spells->clear(true);
 			g_scripts->clearLoadedFiles();
 			g_scripts->loadScripts("scripts", false, true);
+			if (!g_chat->load()) {
+				LOG_ERROR("Failed to reload chat channels.");
+				return false;
+			}
 			g_monsters.reload();
 			g_scripts->loadScripts("monsters", false, true);
 			g_creatureEvents->removeInvalidEvents();
@@ -7704,9 +7708,12 @@ bool Game::reload(ReloadTypes_t reloadType)
 			mounts.reload();
 			g_globalEvents->reload();
 			g_events->load();
-			g_chat->load();
 			g_scripts->clearLoadedFiles();
 			g_scripts->loadScripts("scripts", false, true);
+			if (!g_chat->load()) {
+				LOG_ERROR("Failed to reload chat channels.");
+				return false;
+			}
 			g_monsters.reload();
 			g_scripts->loadScripts("monsters", false, true);
 			g_creatureEvents->removeInvalidEvents();

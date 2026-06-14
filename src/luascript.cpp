@@ -2959,6 +2959,7 @@ void LuaScriptInterface::registerFunctions()
 	registerHouse();
 	registerItemType();
 	registerCombat();
+	registerChatChannel();
 	registerCondition();
 	registerOutfit();
 	registerMonsterType();
@@ -3043,6 +3044,7 @@ void LuaScriptInterface::registerClass(const std::string& className, const std::
 	    {"Condition", LuaData_Condition},
 
 	    {"Combat", LuaData_Combat},
+	    {"ChatChannel", LuaData_ChatChannel},
 	    {"Group", LuaData_Group},
 	    {"Guild", LuaData_Guild},
 	    {"House", LuaData_House},

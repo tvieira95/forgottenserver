@@ -493,6 +493,11 @@ staminaTrainerGain = 1
 defaultPriority = "high"
 startupDatabaseOptimization = false
 
+-- Logging
+-- logToFile: true = save logs to data/logs/server.log, false = console only (default: false)
+logToFile = false
+-- logLevel: trace, debug, info, warning, error, critical (default: info)
+logLevel = "info"
 -- Status Server Information
 ownerName = ""
 ownerEmail = ""
