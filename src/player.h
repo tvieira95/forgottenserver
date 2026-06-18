@@ -1181,6 +1181,8 @@ public:
 	// inventory
 	void onUpdateInventoryItem(Item* oldItem, Item* newItem);
 	void onRemoveInventoryItem(Item* item);
+	void sendAstraPlayerInventorySnapshot() const;
+	void scheduleAstraPlayerInventorySnapshot();
 
 	void sendCancelMessage(std::string_view msg) const
 	{
@@ -1543,6 +1545,7 @@ private:
 	void updateInventoryWeight();
 	void reloadEquipmentStats();
 	void applyEquipmentStats();
+	void flushAstraPlayerInventorySnapshot();
 
 	void setNextWalkActionTask(std::unique_ptr<SchedulerTask> task);
 	void setNextWalkTask(std::unique_ptr<SchedulerTask> task);
@@ -1748,6 +1751,7 @@ private:
 	bool tokenLocked = false;
 	bool staminaPzActive = false;
 	bool staminaTrainerActive = false;
+	bool astraPlayerInventorySnapshotScheduled = false;
 	uint8_t m_harmony = 0;
 	bool m_serene = false;
 	uint64_t m_serene_cooldown = 0;
