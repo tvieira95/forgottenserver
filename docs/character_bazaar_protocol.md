@@ -53,7 +53,7 @@ Both packets start with `0x2E` followed by an action byte.
 | `u32` | creation fee |
 | `u8` | commission percent |
 | `u32` | transferable Tibia Coin balance |
-| Tibia string | blocking reason, empty when allowed |
+| Tibia string | blocking reason, always serialized and empty when allowed |
 
 ### Create result
 
@@ -66,3 +66,7 @@ Both packets start with `0x2E` followed by an action byte.
 
 The client never treats a local click as a successful auction. It only closes
 the window after receiving a successful `0x02` response.
+
+The balance field is an unsigned 32-bit value. Balances above
+`4,294,967,295` cannot exist because `accounts.tibia_coins` uses the same
+unsigned 32-bit ceiling.

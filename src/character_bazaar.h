@@ -16,6 +16,9 @@ inline constexpr uint8_t SERVER_PACKET = 0x2E;
 
 inline constexpr uint8_t ACTION_REQUEST_REQUIREMENTS = 0x01;
 inline constexpr uint8_t ACTION_CREATE_AUCTION = 0x02;
+inline constexpr uint8_t AUCTION_STATUS_ACTIVE = 1;
+inline constexpr uint32_t MAX_DESCRIPTION_LENGTH = 512;
+inline constexpr uint64_t MAX_TIBIA_COINS = 4'294'967'295ULL;
 
 bool isPlayerOnActiveAuction(uint32_t playerId);
 bool canCreateAuction(Player* player, std::string& reason);
@@ -27,7 +30,7 @@ void sendCreateResult(Player* player, bool success, const std::string& message);
 void finalizeExpiredAuctions();
 void scheduleFinalization();
 
-void addHistory(uint32_t auctionId, const std::string& action, uint32_t accountId, uint32_t playerId,
+bool addHistory(uint32_t auctionId, const std::string& action, uint32_t accountId, uint32_t playerId,
                 uint64_t amount, const std::string& message);
 uint64_t getTransferableCoins(uint32_t accountId);
 bool debitTransferableCoins(uint32_t accountId, uint64_t amount);

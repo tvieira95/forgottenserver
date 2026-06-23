@@ -22,7 +22,7 @@ uses this field as its transferable Tibia Coin balance. Do not substitute
 these values when an existing local `config.lua` does not define them):
 
 ```lua
-characterBazaarEnabled = true
+characterBazaarEnabled = true -- explicit opt-in; the server defaults to false
 characterBazaarMinLevel = 50
 characterBazaarMinPrice = 100
 characterBazaarAuctionFee = 50

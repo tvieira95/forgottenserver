@@ -159,7 +159,7 @@ enableQuickLoot = false
 quickLootMaxCorpses = 30
 
 -- Character Bazaar (accounts.tibia_coins is the transferable coin balance)
-characterBazaarEnabled = true
+characterBazaarEnabled = false
 characterBazaarMinLevel = 50
 characterBazaarMinPrice = 100
 characterBazaarAuctionFee = 50

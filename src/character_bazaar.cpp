@@ -14,14 +14,15 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <limits>
 
 namespace {
 
-constexpr uint8_t AUCTION_STATUS_ACTIVE = 1;
+using CharacterBazaar::AUCTION_STATUS_ACTIVE;
+
 constexpr uint8_t AUCTION_STATUS_FINISHED = 2;
 constexpr uint8_t AUCTION_STATUS_CANCELLED = 3;
-constexpr uint32_t MAX_DESCRIPTION_LENGTH = 512;
 constexpr uint32_t FINALIZATION_INTERVAL_MS = 60 * 1000;
 
 uint32_t asUnsignedConfig(ConfigManager::Integer config, uint32_t fallback, uint32_t maximum = UINT32_MAX)
@@ -82,6 +83,12 @@ bool hasActiveAuctionForAccount(uint32_t accountId)
 	return queryHasRows(fmt::format(
 	    "SELECT `id` FROM `character_auctions` WHERE `seller_account_id` = {:d} AND `status` = {:d} LIMIT 1", accountId,
 	    AUCTION_STATUS_ACTIVE));
+}
+
+bool lockAccountForAuction(uint32_t accountId)
+{
+	return static_cast<bool>(Database::getInstance().storeQuery(
+	    fmt::format("SELECT `id` FROM `accounts` WHERE `id` = {:d} FOR UPDATE", accountId)));
 }
 
 bool addHistoryInternal(uint32_t auctionId, const std::string& action, uint32_t accountId, uint32_t playerId,
@@ -185,6 +192,9 @@ bool debitTransferableCoins(uint32_t accountId, uint64_t amount)
 	if (accountId == 0) {
 		return false;
 	}
+	if (amount == 0) {
+		return true;
+	}
 	Database& db = Database::getInstance();
 	return db.executeQuery(fmt::format(
 	           "UPDATE `accounts` SET `tibia_coins` = `tibia_coins` - {:d} WHERE `id` = {:d} AND `tibia_coins` >= {:d}",
@@ -197,16 +207,24 @@ bool creditTransferableCoins(uint32_t accountId, uint64_t amount)
 	if (accountId == 0) {
 		return false;
 	}
+	if (amount == 0) {
+		return true;
+	}
+	if (amount > MAX_TIBIA_COINS) {
+		return false;
+	}
 	Database& db = Database::getInstance();
 	return db.executeQuery(fmt::format(
-	           "UPDATE `accounts` SET `tibia_coins` = `tibia_coins` + {:d} WHERE `id` = {:d}", amount, accountId)) &&
+	           "UPDATE `accounts` SET `tibia_coins` = `tibia_coins` + {:d} WHERE `id` = {:d} "
+	           "AND `tibia_coins` <= {:d}",
+	           amount, accountId, MAX_TIBIA_COINS - amount)) &&
 	       db.getAffectedRows() == 1;
 }
 
-void addHistory(uint32_t auctionId, const std::string& action, uint32_t accountId, uint32_t playerId, uint64_t amount,
+bool addHistory(uint32_t auctionId, const std::string& action, uint32_t accountId, uint32_t playerId, uint64_t amount,
 	            const std::string& message)
 {
-	addHistoryInternal(auctionId, action, accountId, playerId, amount, message);
+	return addHistoryInternal(auctionId, action, accountId, playerId, amount, message);
 }
 
 bool canCreateAuction(Player* player, std::string& reason)
@@ -297,16 +315,16 @@ bool createAuction(Player* player, uint32_t startPrice, uint32_t durationSeconds
 
 	const bool success = DBTransaction::executeWithinTransactionRollbackOnFailure([&]() {
 		Database& db = Database::getInstance();
+		if (!lockAccountForAuction(accountId)) {
+			reason = "The account is no longer available.";
+			return false;
+		}
 		if (isPlayerOnActiveAuction(playerId) || hasActiveAuctionForAccount(accountId)) {
 			reason = "This account already has an active character auction.";
 			return false;
 		}
 		if (!debitTransferableCoins(accountId, getAuctionFee())) {
 			reason = "You do not have enough transferable Tibia Coins for the auction fee.";
-			return false;
-		}
-		if (isPlayerOnActiveAuction(playerId) || hasActiveAuctionForAccount(accountId)) {
-			reason = "This account already has an active character auction.";
 			return false;
 		}
 		if (!db.executeQuery(fmt::format(
@@ -336,7 +354,8 @@ bool createAuction(Player* player, uint32_t startPrice, uint32_t durationSeconds
 	}
 
 	reason = fmt::format("Auction #{:d} created. You will now be logged out.", auctionId);
-	g_scheduler.addEvent(250, [playerId]() { g_game.kickPlayer(playerId, true); });
+	const uint32_t creatureId = player->getID();
+	g_scheduler.addEvent(250, [creatureId]() { g_game.kickPlayer(creatureId, true); });
 	return true;
 }
 
@@ -389,7 +408,10 @@ void finalizeExpiredAuctions()
 	}
 
 	do {
-		finalizeAuction(result->getNumber<uint32_t>("id"));
+		const uint32_t auctionId = result->getNumber<uint32_t>("id");
+		if (!finalizeAuction(auctionId)) {
+			LOG_ERROR(fmt::format("[CharacterBazaar] Failed to finalize auction #{}.", auctionId));
+		}
 	} while (result->next());
 }
 
@@ -399,7 +421,13 @@ void scheduleFinalization()
 		return;
 	}
 	g_scheduler.addEvent(FINALIZATION_INTERVAL_MS, []() {
-		finalizeExpiredAuctions();
+		try {
+			finalizeExpiredAuctions();
+		} catch (const std::exception& exception) {
+			LOG_ERROR(fmt::format("[CharacterBazaar] Exception during finalization: {}", exception.what()));
+		} catch (...) {
+			LOG_ERROR("[CharacterBazaar] Unknown exception during finalization.");
+		}
 		scheduleFinalization();
 	});
 }

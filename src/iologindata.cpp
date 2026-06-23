@@ -6,6 +6,7 @@
 
 #include "iologindata.h"
 
+#include "character_bazaar.h"
 #include "configmanager.h"
 #include "stats.h"
 #include "game.h"
@@ -91,7 +92,8 @@ bool IOLoginData::loginserverAuthentication(std::string_view name, std::string_v
     result = db.storeQuery(fmt::format(
         "SELECT `name` FROM `players` WHERE `account_id` = {:d} AND `deletion` = 0 "
         "AND NOT EXISTS (SELECT 1 FROM `character_auctions` WHERE `character_auctions`.`player_id` = `players`.`id` "
-        "AND `character_auctions`.`status` = 1) ORDER BY `name` ASC", account.id));
+        "AND `character_auctions`.`status` = {:d}) ORDER BY `name` ASC", account.id,
+        CharacterBazaar::AUCTION_STATUS_ACTIVE));
     if (result) {
         do {
             std::string charName = std::string{result->getString("name")};
