@@ -511,9 +511,19 @@ bool ConfigManager::load()
 	booleans[Boolean::STRESS_TEST_LEAK] = getGlobalBoolean(L, "stressTestLeak", true);
 	booleans[Boolean::STRESS_TEST_SHUTDOWN_SEND] = getGlobalBoolean(L, "stressTestShutdownSend", true);
 	booleans[Boolean::CLEAVE_SYSTEM_ENABLED] = getGlobalBoolean(L, "cleavesystem", true);
+	booleans[Boolean::CHARACTER_BAZAAR_ENABLED] = getGlobalBoolean(L, "characterBazaarEnabled", true);
 
 	integers[Integer::CLEAVE_DEFAULT_PERCENT] = std::clamp<int64_t>(getGlobalInteger(L, "cleaveDefaultPercent", 30), 0, 100);
 	integers[Integer::CLEAVE_FIST_PERCENT] = std::clamp<int64_t>(getGlobalInteger(L, "cleaveFistPercent", 20), 0, 100);
+	integers[Integer::CHARACTER_BAZAAR_MIN_LEVEL] = std::max<int64_t>(1, getGlobalInteger(L, "characterBazaarMinLevel", 50));
+	integers[Integer::CHARACTER_BAZAAR_MIN_PRICE] = std::max<int64_t>(1, getGlobalInteger(L, "characterBazaarMinPrice", 100));
+	integers[Integer::CHARACTER_BAZAAR_AUCTION_FEE] = std::max<int64_t>(0, getGlobalInteger(L, "characterBazaarAuctionFee", 50));
+	integers[Integer::CHARACTER_BAZAAR_COMMISSION_PERCENT] =
+	    std::clamp<int64_t>(getGlobalInteger(L, "characterBazaarCommissionPercent", 10), 0, 100);
+	integers[Integer::CHARACTER_BAZAAR_MIN_DURATION_HOURS] =
+	    std::max<int64_t>(1, getGlobalInteger(L, "characterBazaarMinDurationHours", 24));
+	integers[Integer::CHARACTER_BAZAAR_MAX_DURATION_DAYS] =
+	    std::max<int64_t>(1, getGlobalInteger(L, "characterBazaarMaxDurationDays", 7));
 
 	// Admin Config
 	booleans[Boolean::ADMIN_LOCALHOST_ONLY] = getGlobalBoolean(L, "adminLocalhostOnly", true);

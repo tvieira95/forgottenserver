@@ -158,6 +158,15 @@ enableItemUpgradeClassification = false
 enableQuickLoot = false
 quickLootMaxCorpses = 30
 
+-- Character Bazaar (accounts.tibia_coins is the transferable coin balance)
+characterBazaarEnabled = true
+characterBazaarMinLevel = 50
+characterBazaarMinPrice = 100
+characterBazaarAuctionFee = 50
+characterBazaarCommissionPercent = 10
+characterBazaarMinDurationHours = 24
+characterBazaarMaxDurationDays = 7
+
 -- Enable Task Hunt / Task Board system.
 -- Requires compatible AstraClient/OTCv8 support.
 -- Default: false keeps classic 8.60 behaviour.

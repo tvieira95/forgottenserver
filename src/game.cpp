@@ -7,6 +7,7 @@
 
 #include "actions.h"
 #include "bed.h"
+#include "character_bazaar.h"
 #include "configmanager.h"
 #include "creature.h"
 #include "creatureevent.h"
@@ -378,6 +379,8 @@ void Game::start(const std::shared_ptr<ServiceManager>& manager)
 	}
 	g_scheduler.addEvent(createSchedulerTask(EVENT_CREATURE_THINK_INTERVAL, [this]() { checkCreatures(0); }));
 	g_scheduler.addEvent(createSchedulerTask(1000, [this]() { checkSereneStatus(); }));
+	CharacterBazaar::finalizeExpiredAuctions();
+	CharacterBazaar::scheduleFinalization();
 }
 
 GameState_t Game::getGameState() const { return gameState.load(std::memory_order_acquire); }

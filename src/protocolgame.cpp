@@ -6,6 +6,7 @@
 #include "actions.h"
 #include "astraclient.h"
 #include "ban.h"
+#include "character_bazaar.h"
 #include "configmanager.h"
 #include "creatureevent.h"
 #include "game.h"
@@ -550,6 +551,11 @@ bool ProtocolGame::shouldSendItemTierData() const
 
 void ProtocolGame::login(uint32_t characterId, uint32_t accountId, OperatingSystem_t operatingSystem)
 {
+	if (CharacterBazaar::isPlayerOnActiveAuction(characterId)) {
+		disconnectClient("This character is currently listed on the Character Bazaar and cannot enter the game until the auction finishes or is cancelled.");
+		return;
+	}
+
 	// OTCv8 and Mehah features and extended opcodes
 	if (isOTC) {
 		sendFeatures();
@@ -1090,6 +1096,10 @@ void ProtocolGame::onRecvFirstMessage(NetworkMessage& msg)
 		disconnectClient("Account name or password is not correct.");
 		return;
 	}
+	if (characterId != 0 && CharacterBazaar::isPlayerOnActiveAuction(characterId)) {
+		disconnectClient("This character is currently listed on the Character Bazaar and cannot enter the game until the auction finishes or is cancelled.");
+		return;
+	}
 
 	g_dispatcher.addTask([=, thisPtr = getThis()]() { thisPtr->login(characterId, accountId, operatingSystem); });
 }
@@ -1242,6 +1252,13 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 			break; // GameClientExtendedPing
 		case 0x60:
 			parseImbuementDurations(msg);
+			break;
+		case CharacterBazaar::CLIENT_PACKET:
+			if (isAstraClient) {
+				parseCharacterBazaar(msg);
+			} else {
+				skipUnreadBytes(msg);
+			}
 			break;
 		case 0x64:
 			parseAutoWalk(msg);
@@ -1539,6 +1556,51 @@ void ProtocolGame::parsePacket(NetworkMessage& msg)
 	if (msg.isOverrun()) {
 		disconnect();
 	}
+}
+
+void ProtocolGame::parseCharacterBazaar(NetworkMessage& msg)
+{
+	if (!player || !isAstraClient || !ConfigManager::getBoolean(ConfigManager::CHARACTER_BAZAAR_ENABLED) ||
+	    !requireUnreadBytes(msg, 1)) {
+		skipUnreadBytes(msg);
+		return;
+	}
+
+	const uint8_t action = msg.getByte();
+	if (action == CharacterBazaar::ACTION_REQUEST_REQUIREMENTS) {
+		if (getUnreadBytes(msg) != 0) {
+			skipUnreadBytes(msg);
+			return;
+		}
+		g_dispatcher.addTask([playerId = player->getID()]() {
+			if (auto playerRef = g_game.getPlayerByID(playerId)) {
+				CharacterBazaar::sendRequirements(playerRef.get());
+			}
+		});
+		return;
+	}
+
+	if (action != CharacterBazaar::ACTION_CREATE_AUCTION ||
+	    !requireUnreadBytes(msg, sizeof(uint32_t) * 2 + sizeof(uint16_t))) {
+		skipUnreadBytes(msg);
+		return;
+	}
+
+	const uint32_t startPrice = msg.get<uint32_t>();
+	const uint32_t duration = msg.get<uint32_t>();
+	const std::string description = msg.getString();
+	if (msg.isOverrun() || getUnreadBytes(msg) != 0 || description.size() > 512) {
+		skipUnreadBytes(msg);
+		return;
+	}
+
+	g_dispatcher.addTask([playerId = player->getID(), startPrice, duration, description]() {
+		if (auto playerRef = g_game.getPlayerByID(playerId)) {
+			std::string result;
+			const bool success = CharacterBazaar::createAuction(playerRef.get(), startPrice, duration, description, result);
+			CharacterBazaar::sendCreateResult(playerRef.get(), success, result);
+		}
+	});
 }
 
 void ProtocolGame::GetTileDescription(const Tile* tile, NetworkMessage& msg)

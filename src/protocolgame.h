@@ -136,6 +136,7 @@ private:
 
 	void parseModalWindowAnswer(NetworkMessage& msg);
 	void parseImbuementDurations(NetworkMessage& msg);
+	void parseCharacterBazaar(NetworkMessage& msg);
 
 	// trade methods
 	void parseRequestTrade(NetworkMessage& msg);
